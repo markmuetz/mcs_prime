@@ -1,0 +1,21 @@
+name: mcs_prime_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - black
+  - cartopy
+  - ipython
+  - iris
+  - matplotlib
+  - metpy
+  - networkx
+  - numpy
+  - pandas
+  - pip
+  - pytables
+  - python=3.10
+  - scipy
+  - xarray
+  - pip:
+    - tabulate

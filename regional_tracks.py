@@ -28,7 +28,7 @@ TRACK_RESULT = {
     3: 'cloud is the larger fragment of a split',
     10: 'start of a new track',
     12: 'cloud is the smaller fragment of a merger',
-    13: 'cloud is the smaller fragment of a split'
+    13: 'cloud is the smaller fragment of a split',
 }
 TRACK_RESULT_COLOUR_MARKER = {
     -1: ('m', 'X'),
@@ -73,6 +73,7 @@ def display_track_stats(dspf):
         print(f'{v:<41}: {endtrackresult_stats[k]}')
     assert num_tracks == sum(v for k, v in endtrackresult_stats.items())
 
+
 def check_cloudnumbers(dspf):
     date_cn = []
     dspf.base_time.load()
@@ -80,13 +81,17 @@ def check_cloudnumbers(dspf):
     for track_index, track_id in enumerate(dspf.tracks):
         track = dspf.sel(tracks=track_id)
         length = int(track.length.values.item())
-        print(f'{track_index + 1}/{len(dspf.tracks)}', track.base_time.values[0], length)
+        print(
+            f'{track_index + 1}/{len(dspf.tracks)}', track.base_time.values[0], length
+        )
         for i in range(length):
             date_cn.append((track.base_time.values[i], track.cloudnumber.values[i]))
     assert len(date_cn) == len(set(date_cn))
 
 
-def plot_tracks(dspf, display_area=True, display_pf_area=True, display_trackresult=True):
+def plot_tracks(
+    dspf, display_area=True, display_pf_area=True, display_trackresult=True
+):
     fig, ax = plt.subplots(subplot_kw=dict(projection=cartopy.crs.PlateCarree()))
     display_track_stats(dspf)
     print()
@@ -104,14 +109,18 @@ def plot_tracks(dspf, display_area=True, display_pf_area=True, display_trackresu
     end_track = dspf.isel(tracks=-1)
     # How are you meant to format datetime64s? Not like this...
     start_time = f'{start_track.base_time.values[0]}'[:16]
-    end_time = f'{end_track.base_time.values[int(end_track.length.values.item()) - 1]}'[:16]
+    end_time = f'{end_track.base_time.values[int(end_track.length.values.item()) - 1]}'[
+        :16
+    ]
     title = f'{len(dspf.tracks)} tracks: {start_time} - {end_time}'
     ax.set_title(title)
 
     for track_index, track_id in enumerate(dspf.tracks):
         track = dspf.sel(tracks=track_id)
         length = int(track.length.values.item())
-        print(f'{track_index + 1}/{len(dspf.tracks)}', track.base_time.values[0], length)
+        print(
+            f'{track_index + 1}/{len(dspf.tracks)}', track.base_time.values[0], length
+        )
 
         legend_elements = [Line2D([0], [0], color='g', label='track')]
 
@@ -122,12 +131,20 @@ def plot_tracks(dspf, display_area=True, display_pf_area=True, display_trackresu
 
         colour_marker = TRACK_RESULT_COLOUR_MARKER[track.endtrackresult.values.item()]
         if colour_marker:
-            ax.plot(track.meanlon[length - 1], track.meanlat[length - 1], ''.join(colour_marker))
+            ax.plot(
+                track.meanlon[length - 1],
+                track.meanlat[length - 1],
+                ''.join(colour_marker),
+            )
 
-        for i in [0, length -1]:
+        for i in [0, length - 1]:
             ts = pd.Timestamp(track.base_time[i].values)
             marker = f'{ts.day}.{ts.hour}'
-            ax.annotate(marker, (track.meanlon[i].values, track.meanlat[i].values), fontsize='x-small')
+            ax.annotate(
+                marker,
+                (track.meanlon[i].values, track.meanlat[i].values),
+                fontsize='x-small',
+            )
 
         n_points = 20
         if display_area:
@@ -143,18 +160,21 @@ def plot_tracks(dspf, display_area=True, display_pf_area=True, display_trackresu
                     continue
                 if np.isnan(radius):
                     continue
-                circle_points = cartopy.geodesic.Geodesic().circle(lon=lon, lat=lat,
-                                                                   radius=radius, n_samples=n_points,
-                                                                   endpoint=False)
+                circle_points = cartopy.geodesic.Geodesic().circle(
+                    lon=lon, lat=lat, radius=radius, n_samples=n_points, endpoint=False
+                )
                 geom = shapely.geometry.Polygon(circle_points)
                 geoms.append(geom)
             full_geom = shapely.ops.unary_union(geoms)
-            ax.add_geometries((full_geom,), crs=cartopy.crs.PlateCarree(),
-                              facecolor='none', edgecolor='grey', linewidth=2)
-        if display_pf_area:
-            legend_elements.append(
-                Patch(facecolor='none', edgecolor='b', label='PF')
+            ax.add_geometries(
+                (full_geom,),
+                crs=cartopy.crs.PlateCarree(),
+                facecolor='none',
+                edgecolor='grey',
+                linewidth=2,
             )
+        if display_pf_area:
+            legend_elements.append(Patch(facecolor='none', edgecolor='b', label='PF'))
             geoms = []
             for i in range(length):
                 for j in range(3):
@@ -163,23 +183,40 @@ def plot_tracks(dspf, display_area=True, display_pf_area=True, display_trackresu
                     radius = np.sqrt(track.pf_area[i, j].values.item() / np.pi) * 1e3
                     if np.isnan(radius):
                         continue
-                    circle_points = cartopy.geodesic.Geodesic().circle(lon=lon, lat=lat,
-                                                                       radius=radius,
-                                                                       n_samples=n_points,
-                                                                       endpoint=False)
+                    circle_points = cartopy.geodesic.Geodesic().circle(
+                        lon=lon,
+                        lat=lat,
+                        radius=radius,
+                        n_samples=n_points,
+                        endpoint=False,
+                    )
                     geom = shapely.geometry.Polygon(circle_points)
                     geoms.append(geom)
             full_geom = shapely.ops.unary_union(geoms)
-            ax.add_geometries((full_geom,), crs=cartopy.crs.PlateCarree(),
-                              facecolor='none', edgecolor='blue', linewidth=1)
+            ax.add_geometries(
+                (full_geom,),
+                crs=cartopy.crs.PlateCarree(),
+                facecolor='none',
+                edgecolor='blue',
+                linewidth=1,
+            )
 
         if display_trackresult:
-            legend_elements.extend([
-                Line2D([0], [0], marker=cm[1], color='none', label=TRACK_RESULT[k],
-                       markerfacecolor=cm[0], markeredgecolor=cm[0])
-                for k, cm in TRACK_RESULT_COLOUR_MARKER.items()
-                if cm
-            ])
+            legend_elements.extend(
+                [
+                    Line2D(
+                        [0],
+                        [0],
+                        marker=cm[1],
+                        color='none',
+                        label=TRACK_RESULT[k],
+                        markerfacecolor=cm[0],
+                        markeredgecolor=cm[0],
+                    )
+                    for k, cm in TRACK_RESULT_COLOUR_MARKER.items()
+                    if cm
+                ]
+            )
             for i in range(length):
                 trackresult = int(track.trackresult.values[i])
                 colour_marker = TRACK_RESULT_COLOUR_MARKER[trackresult]
@@ -191,4 +228,3 @@ def plot_tracks(dspf, display_area=True, display_pf_area=True, display_trackresu
     fig.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.95)
     ax.coastlines()
     plt.show()
-

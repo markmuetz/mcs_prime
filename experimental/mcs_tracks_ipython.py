@@ -1,5 +1,6 @@
 # coding: utf-8
 import xarray as xr
+
 xr.open_dataset('robust_mcs_tracks_extc_20140101_20141231.nc')
 ds = xr.open_dataset('robust_mcs_tracks_extc_20140101_20141231.nc')
 ds.times
@@ -28,12 +29,13 @@ ds.sel(tracks=4).pf_lon.shape
 ds.sel(tracks=4).pf_lon[:, 0]
 for track_id in range(len(ds.tracks)):
     track = ds.sel(tracks=track_id)
-    plt.plot(track.pf_lon[:track.length, 0], track.pf_lat[:track.length, 0])
+    plt.plot(track.pf_lon[: track.length, 0], track.pf_lat[: track.length, 0])
 
 import matplotlib.pyplot as plt
+
 for track_id in range(len(ds.tracks)):
     track = ds.sel(tracks=track_id)
-    plt.plot(track.pf_lon[:track.length, 0], track.pf_lat[:track.length, 0])
+    plt.plot(track.pf_lon[: track.length, 0], track.pf_lat[: track.length, 0])
 
 track
 track.length
@@ -49,6 +51,7 @@ for track_id in range(len(ds.tracks)):
 
 plt.show()
 import cartopy.crs as ccrs
+
 fig, ax = plt.subplots(subplot_kw=dict(projection=ccrs.PlateCarree()))
 for track_id in range(len(ds.tracks)):
     print(track_id)
@@ -77,6 +80,6 @@ ds.uspeed.min()
 ds.vspeed.min()
 ds.vspeed.max()
 ds.mergecloudnumber
-3065*200*100
+3065 * 200 * 100
 ds.mergecloudnumber.values
 ds.splitcloudnumber.values

@@ -7,6 +7,7 @@ import xarray as xr
 
 BASEDIR = '/home/markmuetz/Datasets/MCS_PRIME/MCS_database/Feng2020JGR_data/data'
 
+
 def plot_heatmap_for_reg_wrong_calc(ax, dspf):
     # This calculates the wrong thing. Suppose you have a stationary MCS, this will
     # count its contribution multiple times in the same place - not what you want.
@@ -32,9 +33,7 @@ def plot_heatmap_for_reg_wrong_calc(ax, dspf):
     levels = np.array([2, 3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 100]) / 4
     norm = colors.BoundaryNorm(boundaries=levels, ncolors=256)
 
-    im = ax.contourf(bxmid, bymid, hist.T / 6,
-                     cmap=cmap, extend='both',
-                     levels=levels)
+    im = ax.contourf(bxmid, bymid, hist.T / 6, cmap=cmap, extend='both', levels=levels)
     return im
 
 
@@ -46,15 +45,21 @@ def update_heatmap_for_reg(hist, dspf, bx, by):
         print(track_id)
         track = dspf.sel(tracks=track_id)
         length = int(track.length.values.item())
-        track_hist, _, _ = np.histogram2d(track.meanlon[:length], track.meanlat[:length], bins=(bx, by))
+        track_hist, _, _ = np.histogram2d(
+            track.meanlon[:length], track.meanlat[:length], bins=(bx, by)
+        )
         hist += track_hist.T.astype(bool)
-
 
 
 if __name__ == '__main__':
     dspfs = {}
     for reg in ['nam', 'spac', 'apac']:
-        dspfs[reg] = xr.open_mfdataset(f'{BASEDIR}/{reg}/*.nc', concat_dim='tracks', combine='nested', mask_and_scale=False)
+        dspfs[reg] = xr.open_mfdataset(
+            f'{BASEDIR}/{reg}/*.nc',
+            concat_dim='tracks',
+            combine='nested',
+            mask_and_scale=False,
+        )
         dspfs[reg]['tracks'] = np.arange(0, dspfs[reg].dims['tracks'], 1, dtype=int)
 
     bx = np.arange(-180, 181, 1)
@@ -71,12 +76,13 @@ if __name__ == '__main__':
     cmap = plt.get_cmap('Spectral_r').copy()
     cmap.set_over('magenta')
     cmap.set_under('white')
-    levels = (np.array([2, 3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 90]) / 100 * hist.max())
+    levels = (
+        np.array([2, 3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 90])
+        / 100
+        * hist.max()
+    )
     norm = colors.BoundaryNorm(boundaries=levels, ncolors=256)
 
-    im = ax.contourf(bxmid, bymid, hist,
-                     cmap=cmap, extend='both',
-                     levels=levels)
+    im = ax.contourf(bxmid, bymid, hist, cmap=cmap, extend='both', levels=levels)
     plt.colorbar(im, orientation='horizontal')
     plt.show()
-

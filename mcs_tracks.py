@@ -149,6 +149,7 @@ class PixelData:
             ax3 = fig.add_subplot(3, 1, 3)
 
             ax1.set_title(f'Track {track.track_id} @ {time}')
+            ax2.set_title(f'Track {track.track_id} swath')
             ax1.coastlines()
             ax2.coastlines()
             track.plot(times=[time], ax=ax1)
@@ -211,7 +212,7 @@ class PixelData:
             ax3.set_ylim((0, 1.6))
             ax3.set_yticks([0, 0.5, 1])
             ax3.axvline(x=i)
-            ax3.legend()
+            ax3.legend(loc='upper right')
             ax3.set_xlabel('time since start (hr)')
 
             figpath = Path(f'figs/anim_plot_track/track_{track.track_id}'

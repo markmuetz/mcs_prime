@@ -108,7 +108,7 @@ class PixelData:
 
         fig = plt.figure('track animation')
         fig.set_size_inches(height * aspect, height)
-        fig.subplots_adjust(left=0.1, right=0.95, bottom=0.1, top=0.9, hspace=0.05)
+        fig.subplots_adjust(left=0.1, right=0.95, bottom=0.05, top=0.95, hspace=0.1)
 
         precip = frames.get_data('precipitation', cloudnumbers)
         tb = frames.dspixel.tb.values
@@ -212,6 +212,7 @@ class PixelData:
             ax3.set_yticks([0, 0.5, 1])
             ax3.axvline(x=i)
             ax3.legend()
+            ax3.set_xlabel('time since start (hr)')
 
             figpath = Path(f'figs/anim_plot_track/track_{track.track_id}'
                            f'/track_{track.track_id}_{i:03d}.png')

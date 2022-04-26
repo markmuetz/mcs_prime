@@ -139,18 +139,12 @@ def plot_tracks_at_time(
         legend_elements = [Line2D([0], [0], color='g', label='track')]
 
         if display_track:
-            ax.plot(
-                track.meanlon[:track_duration], track.meanlat[:track_duration], 'g-'
-            )
-            colour_marker = TRACK_RESULT_COLOUR_MARKER.get(
-                track.start_status.values.item(), ('r', 'x')
-            )
+            ax.plot(track.meanlon[:track_duration], track.meanlat[:track_duration], 'g-')
+            colour_marker = TRACK_RESULT_COLOUR_MARKER.get(track.start_status.values.item(), ('r', 'x'))
             if colour_marker:
                 ax.plot(track.meanlon[0], track.meanlat[0], ''.join(colour_marker))
 
-            colour_marker = TRACK_RESULT_COLOUR_MARKER.get(
-                track.end_status.values.item(), ('r', 'x')
-            )
+            colour_marker = TRACK_RESULT_COLOUR_MARKER.get(track.end_status.values.item(), ('r', 'x'))
             if colour_marker:
                 ax.plot(
                     track.meanlon[track_duration - 1],
@@ -168,9 +162,7 @@ def plot_tracks_at_time(
 
         n_points = 20
         if display_area:
-            legend_elements.append(
-                Patch(facecolor='none', edgecolor='grey', label='CCS')
-            )
+            legend_elements.append(Patch(facecolor='none', edgecolor='grey', label='CCS'))
             geoms = []
             lon = track.meanlon[time_index]
             lat = track.meanlat[time_index]
@@ -198,9 +190,7 @@ def plot_tracks_at_time(
             for j in range(3):
                 lon = track.pf_lon[time_index, j]
                 lat = track.pf_lat[time_index, j]
-                radius = (
-                    np.sqrt(track.pf_area[time_index, j].values.item() / np.pi) * 1e3
-                )
+                radius = np.sqrt(track.pf_area[time_index, j].values.item() / np.pi) * 1e3
                 if np.isnan(radius):
                     continue
                 circle_points = cartopy.geodesic.Geodesic().circle(
@@ -239,9 +229,7 @@ def plot_tracks_at_time(
     plt.show()
 
 
-def plot_tracks(
-    dspf, ax=None, display_area=True, display_pf_area=True, display_trackresult=True
-):
+def plot_tracks(dspf, ax=None, display_area=True, display_pf_area=True, display_trackresult=True):
     if not ax:
         fig, ax = plt.subplots(subplot_kw=dict(projection=cartopy.crs.PlateCarree()))
         fig.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.95)
@@ -261,9 +249,7 @@ def plot_tracks(
     end_track = dspf.isel(tracks=-1)
     # How are you meant to format datetime64s? Not like this...
     start_time = f'{start_track.base_time.values[0]}'[:16]
-    end_time = f'{end_track.base_time.values[int(end_track.track_duration.values.item()) - 1]}'[
-        :16
-    ]
+    end_time = f'{end_track.base_time.values[int(end_track.track_duration.values.item()) - 1]}'[:16]
     title = f'{len(dspf.tracks)} tracks: {start_time} - {end_time}'
     ax.set_title(title)
 
@@ -279,15 +265,11 @@ def plot_tracks(
         legend_elements = [Line2D([0], [0], color='g', label='track')]
 
         ax.plot(track.meanlon[:track_duration], track.meanlat[:track_duration], 'g-')
-        colour_marker = TRACK_RESULT_COLOUR_MARKER.get(
-            track.start_status.values.item(), ('r', 'x')
-        )
+        colour_marker = TRACK_RESULT_COLOUR_MARKER.get(track.start_status.values.item(), ('r', 'x'))
         if colour_marker:
             ax.plot(track.meanlon[0], track.meanlat[0], ''.join(colour_marker))
 
-        colour_marker = TRACK_RESULT_COLOUR_MARKER.get(
-            track.end_status.values.item(), ('r', 'x')
-        )
+        colour_marker = TRACK_RESULT_COLOUR_MARKER.get(track.end_status.values.item(), ('r', 'x'))
         if colour_marker:
             ax.plot(
                 track.meanlon[track_duration - 1],
@@ -306,9 +288,7 @@ def plot_tracks(
 
         n_points = 20
         if display_area:
-            legend_elements.append(
-                Patch(facecolor='none', edgecolor='grey', label='CCS')
-            )
+            legend_elements.append(Patch(facecolor='none', edgecolor='grey', label='CCS'))
             geoms = []
             for i in range(track_duration):
                 lon = track.meanlon[i]
@@ -386,16 +366,11 @@ if __name__ == '__main__':
     dspf = xr.open_dataset(stats_year_path)
     round_times_to_nearest_second(dspf)
 
-    tracking_dir = Path(
-        '/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/mcstracking'
-    )
+    tracking_dir = Path('/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/mcstracking')
     year = 2000
     tracking_year_dir = tracking_dir / f'{year}0601.0000_{year + 1}0101.0000'
     track_pixel_paths = sorted(tracking_year_dir.glob('*.nc'))
-    date_path_map = {
-        dt.datetime.strptime(p.stem, 'mcstrack_%Y%m%d_%H%M'): p
-        for p in track_pixel_paths
-    }
+    date_path_map = {dt.datetime.strptime(p.stem, 'mcstrack_%Y%m%d_%H%M'): p for p in track_pixel_paths}
     # Get pairs of frames which are separated by one hour (one timestep).
     ts = pd.DatetimeIndex(date_path_map.keys())
     tds = ts[1:] - ts[:-1]
@@ -404,12 +379,8 @@ if __name__ == '__main__':
 
     for i in range(len(pairs)):
         for j in range(2):
-            dspf_at_time = dspf.isel(
-                tracks=(dspf.base_time.values == pairs[i, j]).any(axis=1)
-            )
-            dspixel = xr.open_dataset(
-                date_path_map[pd.Timestamp(pairs[i, j]).to_pydatetime()]
-            )
+            dspf_at_time = dspf.isel(tracks=(dspf.base_time.values == pairs[i, j]).any(axis=1))
+            dspixel = xr.open_dataset(date_path_map[pd.Timestamp(pairs[i, j]).to_pydatetime()])
             plot_tracks_at_time(dspf_at_time, dspixel, pairs[i, j])
         plt.pause(0.1)
         if input('q to exit: ') == 'q':

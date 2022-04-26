@@ -2,9 +2,7 @@
 from pathlib import Path
 
 stats_dir = Path('/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/stats')
-tracking_dir = Path(
-    '/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/mcstracking'
-)
+tracking_dir = Path('/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/mcstracking')
 year = 2000
 tracking_year_dir = tracking_dir / f'{year}0601.0000_{year + 1}0101.0000'
 tracking_year_dir
@@ -18,9 +16,7 @@ import datetime as dt
 
 get_ipython().run_line_magic('pinfo', 'dt.datetime.strptime')
 dt.datetime.strptime('mcstrack_20001229_2230', 'mcstrack_%Y%m%d_%H%M')
-date_path_map = {
-    dt.datetime.strptime(p.stem, 'mcstrack_%Y%m%d_%H%M'): p for p in track_pixel_paths
-}
+date_path_map = {dt.datetime.strptime(p.stem, 'mcstrack_%Y%m%d_%H%M'): p for p in track_pixel_paths}
 date_path_map
 date_path_map.keys()
 list(date_path_map.keys())
@@ -248,23 +244,15 @@ np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(int)
 np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(int)[0]
 type(np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(int)[0])
 np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(int)
-np.datetime64(
-    np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(int), 's'
-)
-np.datetime64(
-    np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(int)[0], 's'
-)
+np.datetime64(np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(int), 's')
+np.datetime64(np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(int)[0], 's')
 get_ipython().run_line_magic('pinfo', 'np.int_')
 np.int_(1)
 type(np.int_(1))
 type(np.int(1))
+np.datetime64(np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(str)[0], 's')
 np.datetime64(
-    np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(str)[0], 's'
-)
-np.datetime64(
-    np.round(stats.base_time.values[0, :3].astype(int) / 1e9)
-    .astype(int)
-    .astype(str)[0],
+    np.round(stats.base_time.values[0, :3].astype(int) / 1e9).astype(int).astype(str)[0],
     's',
 )
 np.int64

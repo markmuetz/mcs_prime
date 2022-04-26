@@ -81,17 +81,13 @@ def check_cloudnumbers(dspf):
     for track_index, track_id in enumerate(dspf.tracks):
         track = dspf.sel(tracks=track_id)
         length = int(track.length.values.item())
-        print(
-            f'{track_index + 1}/{len(dspf.tracks)}', track.base_time.values[0], length
-        )
+        print(f'{track_index + 1}/{len(dspf.tracks)}', track.base_time.values[0], length)
         for i in range(length):
             date_cn.append((track.base_time.values[i], track.cloudnumber.values[i]))
     assert len(date_cn) == len(set(date_cn))
 
 
-def plot_tracks(
-    dspf, display_area=True, display_pf_area=True, display_trackresult=True
-):
+def plot_tracks(dspf, display_area=True, display_pf_area=True, display_trackresult=True):
     fig, ax = plt.subplots(subplot_kw=dict(projection=cartopy.crs.PlateCarree()))
     display_track_stats(dspf)
     print()
@@ -109,18 +105,14 @@ def plot_tracks(
     end_track = dspf.isel(tracks=-1)
     # How are you meant to format datetime64s? Not like this...
     start_time = f'{start_track.base_time.values[0]}'[:16]
-    end_time = f'{end_track.base_time.values[int(end_track.length.values.item()) - 1]}'[
-        :16
-    ]
+    end_time = f'{end_track.base_time.values[int(end_track.length.values.item()) - 1]}'[:16]
     title = f'{len(dspf.tracks)} tracks: {start_time} - {end_time}'
     ax.set_title(title)
 
     for track_index, track_id in enumerate(dspf.tracks):
         track = dspf.sel(tracks=track_id)
         length = int(track.length.values.item())
-        print(
-            f'{track_index + 1}/{len(dspf.tracks)}', track.base_time.values[0], length
-        )
+        print(f'{track_index + 1}/{len(dspf.tracks)}', track.base_time.values[0], length)
 
         legend_elements = [Line2D([0], [0], color='g', label='track')]
 
@@ -148,9 +140,7 @@ def plot_tracks(
 
         n_points = 20
         if display_area:
-            legend_elements.append(
-                Patch(facecolor='none', edgecolor='grey', label='CCS')
-            )
+            legend_elements.append(Patch(facecolor='none', edgecolor='grey', label='CCS'))
             geoms = []
             for i in range(length):
                 lon = track.meanlon[i]

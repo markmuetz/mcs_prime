@@ -3,13 +3,18 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# setup files.
+mcs_prime.egg-info
+
 # vim
 .*.sw?
 
 # PyCharm
 .idea
 
+# remake.
 .remake
 
+# local tmp files
 data
 figs

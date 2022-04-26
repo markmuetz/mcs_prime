@@ -45,9 +45,7 @@ def update_heatmap_for_reg(hist, dspf, bx, by):
         print(track_id)
         track = dspf.sel(tracks=track_id)
         length = int(track.length.values.item())
-        track_hist, _, _ = np.histogram2d(
-            track.meanlon[:length], track.meanlat[:length], bins=(bx, by)
-        )
+        track_hist, _, _ = np.histogram2d(track.meanlon[:length], track.meanlat[:length], bins=(bx, by))
         hist += track_hist.T.astype(bool)
 
 
@@ -76,11 +74,7 @@ if __name__ == '__main__':
     cmap = plt.get_cmap('Spectral_r').copy()
     cmap.set_over('magenta')
     cmap.set_under('white')
-    levels = (
-        np.array([2, 3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 90])
-        / 100
-        * hist.max()
-    )
+    levels = np.array([2, 3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 90]) / 100 * hist.max()
     norm = colors.BoundaryNorm(boundaries=levels, ncolors=256)
 
     im = ax.contourf(bxmid, bymid, hist, cmap=cmap, extend='both', levels=levels)

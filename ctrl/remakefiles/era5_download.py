@@ -14,9 +14,7 @@ MONTHS = [1]
 
 class Era5DownloadGlobalSingleLevelVars(TaskRule):
     rule_inputs = {}
-    rule_outputs = {
-        f'out': 'data/ERA5/GlobalSingleLevel/era5_global_single_level_{year}_{month:02d}.nc'
-    }
+    rule_outputs = {f'out': 'data/ERA5/GlobalSingleLevel/era5_global_single_level_{year}_{month:02d}.nc'}
     var_matrix = {
         'year': YEARS,
         'month': MONTHS,

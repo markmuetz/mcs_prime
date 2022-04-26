@@ -4,6 +4,8 @@ import cdsapi
 
 from remake import Remake, TaskRule
 
+from mcs_prime import PATHS, McsTracks, McsTrack, PixelData
+
 c = cdsapi.Client()
 
 era5_download = Remake()
@@ -14,7 +16,7 @@ MONTHS = [1]
 
 class Era5DownloadGlobalSingleLevelVars(TaskRule):
     rule_inputs = {}
-    rule_outputs = {f'out': 'data/ERA5/GlobalSingleLevel/era5_global_single_level_{year}_{month:02d}.nc'}
+    rule_outputs = {f'out': PATHS['datadir'] / '/ERA5/GlobalSingleLevel/era5_global_single_level_{year}_{month:02d}.nc'}
     var_matrix = {
         'year': YEARS,
         'month': MONTHS,

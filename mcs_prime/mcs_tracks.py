@@ -289,14 +289,20 @@ class McsTrack:
                 )
                 geom = shapely.geometry.Polygon(circle_points)
                 geoms.append(geom)
-            full_geom = shapely.ops.unary_union(geoms)
-            ax.add_geometries(
-                (full_geom,),
-                crs=cartopy.crs.PlateCarree(),
-                facecolor='none',
-                edgecolor='grey',
-                linewidth=2,
-            )
+            try:
+                full_geom = shapely.ops.unary_union(geoms)
+                ax.add_geometries(
+                    (full_geom,),
+                    crs=cartopy.crs.PlateCarree(),
+                    facecolor='none',
+                    edgecolor='grey',
+                    linewidth=2,
+                )
+            except ValueError as ve:
+                print(f'Warning: {ve}')
+                # This can happen, perhaps if MCS geom stradles -180?
+                if ve.args[0] != 'No Shapely geometry can be created from null value':
+                    raise
         if display_pf_area:
             geoms = []
             for i in time_indices:
@@ -315,14 +321,20 @@ class McsTrack:
                     )
                     geom = shapely.geometry.Polygon(circle_points)
                     geoms.append(geom)
-            full_geom = shapely.ops.unary_union(geoms)
-            ax.add_geometries(
-                (full_geom,),
-                crs=cartopy.crs.PlateCarree(),
-                facecolor='none',
-                edgecolor='blue',
-                linewidth=1,
-            )
+            try:
+                full_geom = shapely.ops.unary_union(geoms)
+                ax.add_geometries(
+                    (full_geom,),
+                    crs=cartopy.crs.PlateCarree(),
+                    facecolor='none',
+                    edgecolor='blue',
+                    linewidth=1,
+                )
+            except ValueError as ve:
+                print(f'Warning: {ve}')
+                # This can happen, perhaps if MCS geom stradles -180?
+                if ve.args[0] != 'No Shapely geometry can be created from null value':
+                    raise
 
     def animate(self, method='contourf', method_kwargs=None, zoom=False, savefigs=False, figdir=None):
         user_input = ''

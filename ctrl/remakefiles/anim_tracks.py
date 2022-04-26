@@ -7,7 +7,8 @@ from remake.util import sysrun
 from mcs_prime import PATHS, McsTracks, McsTrack, PixelData
 from mcs_prime.util import round_times_to_nearest_second
 
-anim_tracks = Remake()
+slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 64000}
+anim_tracks = Remake(config=dict(slurm=slurm_config))
 
 
 def track_ids_at_time(time):

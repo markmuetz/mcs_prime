@@ -11,11 +11,11 @@ ALL_PATHS = {
         'figdir': Path('/home/markmuetz/MCS_PRIME_output/figs'),
     },
     'jasmin': {
-        'datadir': Path('/tbd'),
-        'statsdir': Path('/tbd'),
-        'pixeldir': Path('/tbd'),
-        'outdir': Path('/tbd'),
-        'figdir': Path('/tbd'),
+        'datadir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME'),
+        'statsdir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/stats'),
+        'pixeldir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/mcstracking'),
+        'outdir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/output'),
+        'figdir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/figs'),
     },
 }
 

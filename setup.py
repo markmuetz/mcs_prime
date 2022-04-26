@@ -28,7 +28,7 @@ version = sp.run(
 setup(
     name='mcs_prime',
     version=version,
-    description='COSMIC package containing tools and analysis',
+    description='MCS PRIME package containing tools and analysis',
     license='LICENSE',
     long_description=read('README.md'),
     author='Mark Muetzelfeldt',
@@ -38,7 +38,9 @@ setup(
     packages=[
         'mcs_prime',
     ],
-    scripts=[],
+    scripts=[
+        'bin/mcs-prime-rsync-jasmin-figures',
+    ],
     python_requires='>=3.10',
     # These should all be met if you use the conda_env in envs.
     install_requires=[

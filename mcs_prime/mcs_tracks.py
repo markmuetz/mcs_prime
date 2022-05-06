@@ -17,6 +17,7 @@ import shapely.ops
 import xarray as xr
 
 from .util import round_times_to_nearest_second
+from .mcs_prime_config import status_dict
 
 
 def round_away_from_zero_to_sigfig(val, nsf):
@@ -93,12 +94,19 @@ class PixelFrames:
         lon = self.dspixel.longitude.load().values
         lat = self.dspixel.latitude.load().values
         data_cloudnumber = self.dspixel.cloudnumber.load()
-        for i, cloudnumber in enumerate(cloudnumbers):
-            cloudmask = self.dspixel.cloudnumber[i] == cloudnumber
-            minlon = min(lon[i][cloudmask].min(), minlon)
-            maxlon = max(lon[i][cloudmask].max(), maxlon)
-            minlat = min(lat[i][cloudmask].min(), minlat)
-            maxlat = max(lat[i][cloudmask].max(), maxlat)
+        if len(cloudnumbers) == 1:
+            cloudmask = self.dspixel.cloudnumber[0] == cloudnumbers[0]
+            minlon = min(lon[cloudmask].min(), minlon)
+            maxlon = max(lon[cloudmask].max(), maxlon)
+            minlat = min(lat[cloudmask].min(), minlat)
+            maxlat = max(lat[cloudmask].max(), maxlat)
+        else:
+            for i, cloudnumber in enumerate(cloudnumbers):
+                cloudmask = self.dspixel.cloudnumber[i] == cloudnumber
+                minlon = min(lon[i][cloudmask].min(), minlon)
+                maxlon = max(lon[i][cloudmask].max(), maxlon)
+                minlat = min(lat[i][cloudmask].min(), minlat)
+                maxlat = max(lat[i][cloudmask].max(), maxlat)
         return (minlon, maxlon, minlat, maxlat)
 
     def get_data(self, field, cloudnumbers):
@@ -342,7 +350,7 @@ class McsTrack:
         except:
             raise
 
-    def plot(self, ax=None, display_area=True, display_pf_area=True, times='all', colour='g', linestyle='-'):
+    def plot(self, ax=None, display_area=True, display_pf_area=True, times='all', colour='g', linestyle='-', use_status_for_marker=False):
         self.load()
         if not ax:
             fig, ax = plt.subplots(subplot_kw=dict(projection=cartopy.crs.PlateCarree()))
@@ -379,13 +387,27 @@ class McsTrack:
             for time in [pd.Timestamp(t).to_numpy() for t in times]:
                 time_indices.append(np.where(self.base_time == time)[0].item())
 
+
+        for i in range(self.duration):
+            lon = self.meanlon[i]
+            lat = self.meanlat[i]
+            if use_status_for_marker:
+                marker = f'{int(self.track_status[i])}'
+                ax.annotate(
+                    marker,
+                    (lon, lat),
+                    fontsize='small',
+                )
+            elif times != 'all':
+                marker = 'o'
+                ax.plot(lon, lat, color=colour, linestyle='None', marker=marker)
+
         n_points = 20
         if display_area:
             geoms = []
             for i in time_indices:
                 lon = self.meanlon[i]
                 lat = self.meanlat[i]
-                ax.plot(lon, lat, color=colour, linestyle='None', marker='o')
                 radius = np.sqrt(self.ccs_area[i].item() / np.pi) * 1e3
                 if lon < -170:
                     continue
@@ -443,7 +465,7 @@ class McsTrack:
                 if ve.args[0] != 'No Shapely geometry can be created from null value':
                     raise
 
-    def animate(self, method='contourf', method_kwargs=None, zoom=False, savefigs=False, figdir=None):
+    def animate(self, method='contourf', method_kwargs=None, zoom='swath', savefigs=False, figdir=None):
         user_input = ''
         times = pd.DatetimeIndex(self.base_time)
         start = pd.Timestamp(self.dstrack.start_basetime.values).to_pydatetime()
@@ -451,9 +473,9 @@ class McsTrack:
 
         cloudnumbers = self.cloudnumber
         frames = self.pixel_data.get_frames(start, end)
-        extent = frames.get_min_max_lon_lat(cloudnumbers)
-        dlon = extent[1] - extent[0]
-        dlat = extent[3] - extent[2]
+        swath_extent = frames.get_min_max_lon_lat(cloudnumbers)
+        dlon = swath_extent[1] - swath_extent[0]
+        dlat = swath_extent[3] - swath_extent[2]
         aspect = (dlon + 3) / (dlat * 3)
         height = 9.5
 
@@ -486,19 +508,23 @@ class McsTrack:
         swath_norm = mpl.colors.BoundaryNorm(boundaries=swath_precip_levels, ncolors=256)
 
         figpaths = []
-        for i, (cloudnumber, time) in enumerate(zip(cloudnumbers, times)):
+        i = 0
+        while i < len(cloudnumbers) and i >= 0:
+            cloudnumber = cloudnumbers[i]
+            time = times[i]
             print(time)
             fig.clf()
             ax1 = fig.add_subplot(3, 1, 1, projection=cartopy.crs.PlateCarree())
             ax2 = fig.add_subplot(3, 1, 2, projection=cartopy.crs.PlateCarree())
             ax3 = fig.add_subplot(3, 1, 3)
 
-            ax1.set_title(f'Track {self.track_id} @ {time}')
+            status = int(self.track_status[i])
+            ax1.set_title(f'Track {self.track_id} @ {time} ({status=})')
             ax2.set_title(f'Track {self.track_id} swath')
             ax1.coastlines()
             ax2.coastlines()
-            self.plot(times=[time], ax=ax1)
-            self.plot(times=[time], ax=ax2)
+            self.plot(times=[time], ax=ax1, use_status_for_marker=True)
+            self.plot(times=[time], ax=ax2, use_status_for_marker=True)
 
             self._anim_individual_frame(ax1, frames, precip[i], cn[i], tb[i], frame_norm, frame_precip_levels)
             self._anim_swath(ax2, frames, precip_swath, cn_swath, swath_norm, swath_precip_levels)
@@ -522,6 +548,11 @@ class McsTrack:
                         labels.append(f'{t:.0f} °E')
                 return labels
 
+            if zoom == 'swath':
+                extent = swath_extent
+            elif zoom == 'current':
+                frames = self.pixel_data.get_frames(time, time)
+                extent = frames.get_min_max_lon_lat([cloudnumber])
             lon_ticks, lat_ticks = ticks_from_min_max_lon_lat(*extent)
 
             ax1.set_yticks(lat_ticks)
@@ -533,10 +564,11 @@ class McsTrack:
             ax2.set_xticks(lon_ticks)
             ax2.set_xticklabels(fmt_lon_ticklabels(lon_ticks))
 
-            ax1.legend(handles=legend_elements)
-
             ax1.set_extent(extent)
             ax2.set_extent(extent)
+
+            ax1.legend(handles=legend_elements)
+
 
             if savefigs:
                 figpath = Path(figdir / f'anim_track/track_{self.track_id}/track_{self.track_id}_{i:03d}.png')
@@ -545,12 +577,20 @@ class McsTrack:
                 figpaths.append(figpath)
             else:
                 plt.pause(1)
+                print(status, status_dict[status])
                 if user_input != 'c':
-                    user_input = input('c for continue, q to quit, <enter> for step: ')
+                    user_input = input('c for continue, q to quit, p for prev, <enter> for step: ')
                     if user_input == 'q':
                         raise Exception('quit')
+                    elif user_input == 'p':
+                        i -= 1
                     elif user_input == 'c':
                         print('<ctrl-c> to stop')
+                        i += 1
+                    else:
+                        i += 1
+                else:
+                    i += 1
         return figpaths
 
     @staticmethod

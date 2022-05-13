@@ -12,8 +12,8 @@ ALL_PATHS = {
     },
     'jasmin': {
         'datadir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME'),
-        'statsdir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/stats'),
-        'pixeldir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/mcstracking'),
+        'statsdir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/MCS_Global/stats'),
+        'pixeldir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/MCS_Global/mcstracking'),
         'outdir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/output'),
         'figdir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/figs'),
     },

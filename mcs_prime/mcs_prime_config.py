@@ -38,3 +38,29 @@ PATHS = ALL_PATHS[hostname]
 for k, path in PATHS.items():
     if not path.exists():
         warnings.warn(f'Warning: path missing {k}: {path}')
+
+# Generated using:
+# dict((int(v[0]), v[1].strip()) for v in [l.strip().split(':') for l in tracks.dstracks.track_status.attrs['comments'].split(';')]))
+status_dict = {
+    0: 'Track stops',
+    1: 'Simple track continuation',
+    2: 'This is the bigger cloud in simple merger',
+    3: 'This is the bigger cloud from a simple split that stops at this time',
+    4: 'This is the bigger cloud from a split and this cloud continues to the next time',
+    5: 'This is the bigger cloud from a split that subsequently is the big cloud in a merger',
+    13: 'This cloud splits at the next time step',
+    15: 'This cloud is the bigger cloud in a merge that then splits at the next time step',
+    16: 'This is the bigger cloud in a split that then splits at the next time step',
+    18: 'Merge-split at same time (big merge, splitter, and big split)',
+    21: 'This is the smaller cloud in a simple merger',
+    24: 'This is the bigger cloud of a split that is then the small cloud in a merger',
+    31: 'This is the smaller cloud in a simple split that stops',
+    32: 'This is a small split that continues onto the next time step',
+    33: 'This is a small split that then is the bigger cloud in a merger',
+    34: 'This is the small cloud in a merger that then splits at the next time step',
+    37: 'Merge-split at same time (small merge, splitter, big split)',
+    44: 'This is the smaller cloud in a split that is smaller cloud in a merger at the next time step',
+    46: 'Merge-split at same time (big merge, splitter, small split)',
+    52: 'This is the smaller cloud in a split that is smaller cloud in a merger at the next time step',
+    65: 'Merge-split at same time (smaller merge, splitter, small split)'
+}

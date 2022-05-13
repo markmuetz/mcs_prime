@@ -7,6 +7,7 @@ import cartopy
 import cartopy.geodesic
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib import colors
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import numpy as np
@@ -16,6 +17,14 @@ import shapely.ops
 import xarray as xr
 
 from .util import round_times_to_nearest_second
+from .mcs_prime_config import status_dict
+
+
+def round_away_from_zero_to_sigfig(val, nsf):
+    sign = 1 if val >= 0 else -1
+    factor = 10 ** (nsf - math.ceil(math.log10(sign * val)))
+    newval = math.ceil(sign * val * factor) / factor
+    return sign * newval
 
 
 def create_fig_ax():
@@ -85,12 +94,19 @@ class PixelFrames:
         lon = self.dspixel.longitude.load().values
         lat = self.dspixel.latitude.load().values
         data_cloudnumber = self.dspixel.cloudnumber.load()
-        for i, cloudnumber in enumerate(cloudnumbers):
-            cloudmask = self.dspixel.cloudnumber[i] == cloudnumber
-            minlon = min(lon[i][cloudmask].min(), minlon)
-            maxlon = max(lon[i][cloudmask].max(), maxlon)
-            minlat = min(lat[i][cloudmask].min(), minlat)
-            maxlat = max(lat[i][cloudmask].max(), maxlat)
+        if len(cloudnumbers) == 1:
+            cloudmask = self.dspixel.cloudnumber[0] == cloudnumbers[0]
+            minlon = min(lon[cloudmask].min(), minlon)
+            maxlon = max(lon[cloudmask].max(), maxlon)
+            minlat = min(lat[cloudmask].min(), minlat)
+            maxlat = max(lat[cloudmask].max(), maxlat)
+        else:
+            for i, cloudnumber in enumerate(cloudnumbers):
+                cloudmask = self.dspixel.cloudnumber[i] == cloudnumber
+                minlon = min(lon[i][cloudmask].min(), minlon)
+                maxlon = max(lon[i][cloudmask].max(), maxlon)
+                minlat = min(lat[i][cloudmask].min(), minlat)
+                maxlat = max(lat[i][cloudmask].max(), maxlat)
         return (minlon, maxlon, minlat, maxlat)
 
     def get_data(self, field, cloudnumbers):
@@ -185,12 +201,111 @@ class McsTracks:
     def get_track(self, track_id):
         return McsTrack(track_id, self.dstracks.sel(tracks=track_id), self.pixel_data)
 
+    def get_lon_lat_for_local_solar_time(self, t0, t1):
+        base_time = pd.DatetimeIndex(self.dstracks.base_time.values.flatten())
+        meanlon = self.dstracks.meanlon.values.flatten()
+        meanlat = self.dstracks.meanlat.values.flatten()
+
+        lst_offset_hours = meanlon / 180 * 12
+        time_hours = (base_time.hour + base_time.minute / 60).values
+        lst = time_hours + lst_offset_hours
+        lst = lst % 24
+        lst_mask = (lst > t0) & (lst < t1)
+        nan_mask = ~np.isnan(base_time)
+        mask = lst_mask & nan_mask
+        return meanlon[mask], meanlat[mask]
+
+    def plot_diurnal_cycle(self, dhours=6, anomaly=True):
+        sizes = {1: (4, 6), 2: (4, 3), 3: (4, 2), 4: (2, 3), 6: (2, 2)}
+        size = sizes[dhours]
+        fig, axes = plt.subplots(
+            size[0], size[1], subplot_kw=dict(projection=cartopy.crs.PlateCarree()), sharex=True, sharey=True
+        )
+        fig.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.95)
+        xmin = -180
+        xmax = 180
+        ymin = -60
+        ymax = 60
+        dx = 4
+        dy = 4
+        bx = np.arange(xmin, xmax + dx, dx)
+        by = np.arange(ymin, ymax + dy, dy)
+        bxmid = (bx[1:] + bx[:-1]) / 2
+        bymid = (by[1:] + by[:-1]) / 2
+
+        if anomaly:
+            meanlon = self.dstracks.meanlon.values.flatten()
+            meanlat = self.dstracks.meanlat.values.flatten()
+            lon = meanlon[~np.isnan(meanlon)]
+            lat = meanlat[~np.isnan(meanlat)]
+            mean_hist, _, _ = np.histogram2d(lon, lat, bins=(bx, by), density=True)
+            diff_hists = {}
+
+        hists = {}
+        hist_max = 0
+        for i, ax in enumerate(axes.flatten()):
+            hour = i * dhours
+            print(hour)
+            ax.coastlines()
+            ax.set_title(f'LST: {hour} - {hour + dhours}')
+
+            lon, lat = self.get_lon_lat_for_local_solar_time(hour, hour + dhours)
+
+            hist, _, _ = np.histogram2d(lon, lat, bins=(bx, by), density=True)
+            hists[i] = hist
+            if anomaly:
+                diff_hists[i] = hist - mean_hist
+            hist_max = max(hist.max(), hist_max)
+
+        if anomaly:
+            diff_hist_min = min([diff_hists[i].min() for i, ax in enumerate(axes.flatten())])
+            diff_hist_max = max([diff_hists[i].max() for i, ax in enumerate(axes.flatten())])
+
+            abs_max = round_away_from_zero_to_sigfig(max(abs(diff_hist_min), abs(diff_hist_max)), 2)
+
+            levels = np.array([-1, -5e-1, -2e-1, -1e-1, -5e-2, 5e-2, 1e-1, 2e-1, 5e-1, 1]) * abs_max
+            cmap = plt.get_cmap('RdBu_r').copy()
+        else:
+            cmap = plt.get_cmap('Spectral_r').copy()
+            levels = np.array([0, 2, 3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 90, 100]) / 100 * hist.max()
+        norm = colors.BoundaryNorm(boundaries=levels, ncolors=256)
+
+        for i, ax in enumerate(axes.flatten()):
+            if anomaly:
+                hist = diff_hists[i]
+            else:
+                hist = hists[i]
+            extent = (xmin, xmax, ymin, ymax)
+            im = ax.imshow(hist.T, origin='lower', extent=extent, cmap=cmap, norm=norm)
+
+        if anomaly:
+            plt.colorbar(im, ax=axes, label='MCS density anomaly')
+        else:
+            plt.colorbar(im, ax=axes, label='MCS density')
+
     def tracks_at_time(self, datetime):
         datetime = pd.Timestamp(datetime).to_numpy()
         dstracks_at_time = self.dstracks.isel(tracks=(self.dstracks.base_time.values == datetime).any(axis=1))
-        return McsTracks(dstracks_at_time)
+        return McsTracks(dstracks_at_time, self.pixel_data)
 
-    def plot(self, ax=None, display_area=True, display_pf_area=True, times='all'):
+    def land_sea_both_tracks(self, land_ratio=0.9, sea_ratio=0.1):
+        if land_ratio < sea_ratio:
+            # If this is the case, some tracks will be double counted.
+            raise ValueError('land_ratio must be greater than sea_ratio')
+        track_mean_pf_landfrac = self.dstracks.pf_landfrac.mean(dim='times').values
+        land_mask = track_mean_pf_landfrac > land_ratio
+        sea_mask = track_mean_pf_landfrac <= sea_ratio
+        both_mask = (track_mean_pf_landfrac <= land_ratio) & (track_mean_pf_landfrac > sea_ratio)
+
+        land_tracks = McsTracks(self.dstracks.isel(tracks=land_mask), self.pixel_data)
+        sea_tracks = McsTracks(self.dstracks.isel(tracks=sea_mask), self.pixel_data)
+        if both_mask.sum() != 0:
+            both_tracks = McsTracks(self.dstracks.isel(tracks=both_mask), self.pixel_data)
+        else:
+            both_tracks = None
+        return land_tracks, sea_tracks, both_tracks
+
+    def plot(self, ax=None, display_area=True, display_pf_area=True, times='all', colour='g', linestyle='-'):
         if not ax:
             fig, ax = plt.subplots(subplot_kw=dict(projection=cartopy.crs.PlateCarree()))
             fig.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.95)
@@ -203,7 +318,7 @@ class McsTracks:
         for i, track_id in enumerate(self.dstracks.tracks):
             track = self.get_track(track_id.values.item())
             print(f'{track}: {i + 1}/{len(self.dstracks.tracks)}')
-            track.plot(ax, display_area, display_pf_area, times)
+            track.plot(ax, display_area, display_pf_area, times, colour, linestyle)
 
     @property
     def start(self):
@@ -235,7 +350,7 @@ class McsTrack:
         except:
             raise
 
-    def plot(self, ax=None, display_area=True, display_pf_area=True, times='all'):
+    def plot(self, ax=None, display_area=True, display_pf_area=True, times='all', colour='g', linestyle='-', use_status_for_marker=False):
         self.load()
         if not ax:
             fig, ax = plt.subplots(subplot_kw=dict(projection=cartopy.crs.PlateCarree()))
@@ -254,7 +369,7 @@ class McsTrack:
                     zoom=True,
                 )
 
-        ax.plot(self.meanlon, self.meanlat, 'g-')
+        ax.plot(self.meanlon, self.meanlat, color=colour, linestyle=linestyle)
 
         for i in [0, self.duration - 1]:
             ts = pd.Timestamp(self.base_time[i])
@@ -272,13 +387,27 @@ class McsTrack:
             for time in [pd.Timestamp(t).to_numpy() for t in times]:
                 time_indices.append(np.where(self.base_time == time)[0].item())
 
+
+        for i in range(self.duration):
+            lon = self.meanlon[i]
+            lat = self.meanlat[i]
+            if use_status_for_marker:
+                marker = f'{int(self.track_status[i])}'
+                ax.annotate(
+                    marker,
+                    (lon, lat),
+                    fontsize='small',
+                )
+            elif times != 'all':
+                marker = 'o'
+                ax.plot(lon, lat, color=colour, linestyle='None', marker=marker)
+
         n_points = 20
         if display_area:
             geoms = []
             for i in time_indices:
                 lon = self.meanlon[i]
                 lat = self.meanlat[i]
-                ax.plot(lon, lat, 'go')
                 radius = np.sqrt(self.ccs_area[i].item() / np.pi) * 1e3
                 if lon < -170:
                     continue
@@ -336,7 +465,7 @@ class McsTrack:
                 if ve.args[0] != 'No Shapely geometry can be created from null value':
                     raise
 
-    def animate(self, method='contourf', method_kwargs=None, zoom=False, savefigs=False, figdir=None):
+    def animate(self, method='contourf', method_kwargs=None, zoom='swath', savefigs=False, figdir=None):
         user_input = ''
         times = pd.DatetimeIndex(self.base_time)
         start = pd.Timestamp(self.dstrack.start_basetime.values).to_pydatetime()
@@ -344,9 +473,9 @@ class McsTrack:
 
         cloudnumbers = self.cloudnumber
         frames = self.pixel_data.get_frames(start, end)
-        extent = frames.get_min_max_lon_lat(cloudnumbers)
-        dlon = extent[1] - extent[0]
-        dlat = extent[3] - extent[2]
+        swath_extent = frames.get_min_max_lon_lat(cloudnumbers)
+        dlon = swath_extent[1] - swath_extent[0]
+        dlat = swath_extent[3] - swath_extent[2]
         aspect = (dlon + 3) / (dlat * 3)
         height = 9.5
 
@@ -379,19 +508,23 @@ class McsTrack:
         swath_norm = mpl.colors.BoundaryNorm(boundaries=swath_precip_levels, ncolors=256)
 
         figpaths = []
-        for i, (cloudnumber, time) in enumerate(zip(cloudnumbers, times)):
+        i = 0
+        while i < len(cloudnumbers) and i >= 0:
+            cloudnumber = cloudnumbers[i]
+            time = times[i]
             print(time)
             fig.clf()
             ax1 = fig.add_subplot(3, 1, 1, projection=cartopy.crs.PlateCarree())
             ax2 = fig.add_subplot(3, 1, 2, projection=cartopy.crs.PlateCarree())
             ax3 = fig.add_subplot(3, 1, 3)
 
-            ax1.set_title(f'Track {self.track_id} @ {time}')
+            status = int(self.track_status[i])
+            ax1.set_title(f'Track {self.track_id} @ {time} ({status=})')
             ax2.set_title(f'Track {self.track_id} swath')
             ax1.coastlines()
             ax2.coastlines()
-            self.plot(times=[time], ax=ax1)
-            self.plot(times=[time], ax=ax2)
+            self.plot(times=[time], ax=ax1, use_status_for_marker=True)
+            self.plot(times=[time], ax=ax2, use_status_for_marker=True)
 
             self._anim_individual_frame(ax1, frames, precip[i], cn[i], tb[i], frame_norm, frame_precip_levels)
             self._anim_swath(ax2, frames, precip_swath, cn_swath, swath_norm, swath_precip_levels)
@@ -415,6 +548,11 @@ class McsTrack:
                         labels.append(f'{t:.0f} °E')
                 return labels
 
+            if zoom == 'swath':
+                extent = swath_extent
+            elif zoom == 'current':
+                frames = self.pixel_data.get_frames(time, time)
+                extent = frames.get_min_max_lon_lat([cloudnumber])
             lon_ticks, lat_ticks = ticks_from_min_max_lon_lat(*extent)
 
             ax1.set_yticks(lat_ticks)
@@ -426,10 +564,11 @@ class McsTrack:
             ax2.set_xticks(lon_ticks)
             ax2.set_xticklabels(fmt_lon_ticklabels(lon_ticks))
 
-            ax1.legend(handles=legend_elements)
-
             ax1.set_extent(extent)
             ax2.set_extent(extent)
+
+            ax1.legend(handles=legend_elements)
+
 
             if savefigs:
                 figpath = Path(figdir / f'anim_track/track_{self.track_id}/track_{self.track_id}_{i:03d}.png')
@@ -438,12 +577,20 @@ class McsTrack:
                 figpaths.append(figpath)
             else:
                 plt.pause(1)
+                print(status, status_dict[status])
                 if user_input != 'c':
-                    user_input = input('c for continue, q to quit, <enter> for step: ')
+                    user_input = input('c for continue, q to quit, p for prev, <enter> for step: ')
                     if user_input == 'q':
                         raise Exception('quit')
+                    elif user_input == 'p':
+                        i -= 1
                     elif user_input == 'c':
                         print('<ctrl-c> to stop')
+                        i += 1
+                    else:
+                        i += 1
+                else:
+                    i += 1
         return figpaths
 
     @staticmethod

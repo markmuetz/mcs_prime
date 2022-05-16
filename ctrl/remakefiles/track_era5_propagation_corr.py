@@ -183,8 +183,10 @@ class PlotHist(TaskRule):
         nanmask0 = ~np.isnan(ds.track_point_vel_x.values)
         nanmask1 = ~np.isnan(ds.track_point_vel_y.values)
 
-        bins = np.linspace(-25, 25, 20)
-        extent = (-25, 25, -25, 25)
+        # Taken from analysing narrow bin histograms (corresponds to dx/dy of ~10km).
+        dbin = 2.77
+        bins = np.arange(-10 * dbin - dbin / 2, 11 * dbin + dbin / 2, dbin)
+        extent = bins[[0, -1, 0, -1]]
         fig, axes = plt.subplots(2, len(levels))
         fig.suptitle('ERA5 vs MCS')
         for i in range(len(levels)):
@@ -213,8 +215,8 @@ class PlotHist(TaskRule):
             )
             x0min, x0max = ds.track_point_era5_u[i].values.min(), ds.track_point_era5_u[i].values.max()
             x1min, x1max = ds.track_point_era5_v[i].values.min(), ds.track_point_era5_v[i].values.max()
-            x0 = np.array([-25, 25])
-            x1 = np.array([-25, 25])
+            x0 = np.array(bins[[0, -1]])
+            x1 = np.array(bins[[0, -1]])
 
             label0 = f'm={res0.slope:.2f}\nr2={res0.rvalue**2:.2f}'
             label1 = f'm={res1.slope:.2f}\nr2={res1.rvalue**2:.2f}'

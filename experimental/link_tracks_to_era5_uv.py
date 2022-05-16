@@ -28,7 +28,7 @@ if __name__ == '__main__':
         dstracks.meanlat.load()
         dstracks.movement_distance_x.load()
         dstracks.movement_distance_y.load()
-        # Choose 3 levels near the bottom of domain.
+        # Choose some levels.
         levels = [-71, -61, -51, -41, -31, -21, -11, -1]
 
         for h in range(24):
@@ -50,6 +50,7 @@ if __name__ == '__main__':
             lon = xr.DataArray(track_point_lon, dims='track_point')
             lat = xr.DataArray(track_point_lat, dims='track_point')
 
+            # N.B. no interp.
             track_point_era5_u = (e5u.isel(time=0).isel(level=levels)
                                   .sel(longitude=lon, latitude=lat, method='nearest').values)
             track_point_era5_v = (e5v.isel(time=0).isel(level=levels)
@@ -89,6 +90,7 @@ if __name__ == '__main__':
         print(end - start)
 
     fig, axes = plt.subplots(2, len(levels))
+    fig.suptitle('ERA5 vs MCS for 2019/6/1')
     for i in range(len(levels)):
         ax0, ax1 = axes[:, i]
         ax0.scatter(ds.track_point_era5_u[i].values, ds.track_point_vel_x.values)
@@ -115,5 +117,13 @@ if __name__ == '__main__':
         ax1.plot(x1, res1.intercept + res1.slope * x1, 'r', label=label1)
         ax0.legend()
         ax1.legend()
+
+        ax0.set_title(f'model level: {ds.level[i].values.item()}')
+        ax0.set_xlabel('ERA5 u')
+        ax1.set_xlabel('ERA5 v')
+        if i == 0:
+            ax0.set_ylabel('Track u')
+            ax1.set_ylabel('Track v')
+
     plt.show()
 

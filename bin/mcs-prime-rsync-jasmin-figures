@@ -1,2 +1,2 @@
 #!/bin/bash
-rsync -Rav mmuetz@xfer1.jasmin.ac.uk:/./gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/figs /home/markmuetz/mirrors/jasmin
+rsync -Rav --progress mmuetz@xfer1.jasmin.ac.uk:/./gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/figs /home/markmuetz/mirrors/jasmin

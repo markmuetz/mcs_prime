@@ -189,6 +189,7 @@ class PlotHist(TaskRule):
         extent = bins[[0, -1, 0, -1]]
         fig, axes = plt.subplots(2, len(levels))
         fig.suptitle('ERA5 vs MCS')
+
         for i in range(len(levels)):
             hist0, _, _ = np.histogram2d(
                 ds.track_point_era5_u[i].values[nanmask0],

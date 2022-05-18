@@ -188,9 +188,27 @@ class PixelFrame:
 
 class McsTracks:
     @classmethod
-    def load(cls, stats_path, pixeldir):
+    def mfload(cls, stats_paths, pixeldir, round_times=True):
+        dstracks = xr.open_mfdataset(
+            stats_paths,
+            concat_dim='tracks',
+            combine='nested',
+            mask_and_scale=False,
+        )
+        dstracks['tracks'] = np.arange(0, dstracks.dims['tracks'], 1, dtype=int)
+        if round_times:
+            dstracks.base_time.load()
+            dstracks.start_basetime.load()
+            dstracks.end_basetime.load()
+            round_times_to_nearest_second(dstracks)
+        pixel_data = PixelData(pixeldir)
+        return cls(dstracks, pixel_data)
+
+    @classmethod
+    def load(cls, stats_path, pixeldir, round_times=True):
         dstracks = xr.open_dataset(stats_path)
-        round_times_to_nearest_second(dstracks)
+        if round_times:
+            round_times_to_nearest_second(dstracks)
         pixel_data = PixelData(pixeldir)
         return cls(dstracks, pixel_data)
 
@@ -322,13 +340,16 @@ class McsTracks:
 
     @property
     def start(self):
-        return pd.Timestamp(self.dstracks.start_basetime.min().values)
+        return pd.Timestamp(self.dstracks.start_basetime.values.min())
 
     @property
     def end(self):
-        return pd.Timestamp(self.dstracks.end_basetime.max().values)
+        return pd.Timestamp(self.dstracks.end_basetime.values.max())
 
     def __repr__(self):
+        return f'McsTracks[{self.start}, {self.end}, ntracks={len(self.dstracks.tracks)}]'
+
+    def _repr_html_(self):
         return f'McsTracks[{self.start}, {self.end}, ntracks={len(self.dstracks.tracks)}]'
 
 

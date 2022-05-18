@@ -18,7 +18,9 @@ def round_times_to_nearest_second(dstracks):
     def remove_time_incaccuracy(t):
         return np.datetime64(int(round(t / 1e9) * 1e9), 'ns')
 
-    vec_remove_time_incaccuracy = np.vectorize(remove_time_incaccuracy)
+    # vec_remove_time_incaccuracy = np.vectorize(remove_time_incaccuracy)
+    def vec_remove_time_incaccuracy(times):
+        return [remove_time_incaccuracy(t) for t in times]
     tmask = ~np.isnan(dstracks.base_time.values)
     dstracks.base_time.values[tmask] = vec_remove_time_incaccuracy(dstracks.base_time.values[tmask].astype(int))
     tmask = ~np.isnan(dstracks.start_basetime.values)

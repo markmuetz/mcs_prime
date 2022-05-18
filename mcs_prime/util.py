@@ -1,5 +1,7 @@
 import numpy as np
 
+from IPython.display import clear_output
+
 
 def round_times_to_nearest_second(dstracks):
     """Round times in dstracks.base_time to the nearest second.
@@ -29,3 +31,19 @@ def round_times_to_nearest_second(dstracks):
     )
     tmask = ~np.isnan(dstracks.end_basetime.values)
     dstracks.end_basetime.values[tmask] = vec_remove_time_incaccuracy(dstracks.end_basetime.values[tmask].astype(int))
+
+
+def update_progress(progress, bar_length=20):
+    if isinstance(progress, int):
+        progress = float(progress)
+    if not isinstance(progress, float):
+        progress = 0
+    if progress < 0:
+        progress = 0
+    if progress >= 1:
+        progress = 1
+
+    block = int(round(bar_length * progress))
+    clear_output(wait=True)
+    text = "Progress: [{0}] {1:.1f}%".format( "#" * block + "-" * (bar_length - block), progress * 100)
+    print(text)

@@ -15,6 +15,12 @@ mcs_prime.egg-info
 # remake.
 .remake
 
+
+# IPYNB notebooks:
+.ipynb_checkpoints
+
 # local tmp files
 data
 figs
+
+.

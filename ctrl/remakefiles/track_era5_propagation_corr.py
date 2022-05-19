@@ -4,6 +4,7 @@ from pathlib import Path
 from timeit import default_timer
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -16,12 +17,13 @@ from mcs_prime import PATHS, McsTracks, PixelData
 from mcs_prime.util import round_times_to_nearest_second
 
 slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 16000}
+# slurm_config = {'queue': 'short-serial', 'mem': 16000}
 track_era5_prop = Remake(config=dict(slurm=slurm_config))
 
 date = dt.date(2019, 1, 1)
 days = []
-# while date.year == 2019:
-while date.day <= 10:
+# while date.day <= 10:
+while date.year == 2019:
     days.append(date)
     date += dt.timedelta(days=1)
 
@@ -49,6 +51,8 @@ class TrackERA5PropagationCorr(TaskRule):
         # Choose some levels.
         levels = [-61, -41, -21, -1]
 
+        # N.B. not all hours have to have data in them. Skip one that don't.
+        hours = []
         for h in range(24):
             print(h)
             e5u = xr.open_dataarray(e5datadir / f'ecmwf-era5_oper_an_ml_{self.year}{self.month:02d}{self.day:02d}{h:02d}00.u.nc')
@@ -68,29 +72,31 @@ class TrackERA5PropagationCorr(TaskRule):
             lon = xr.DataArray(track_point_lon, dims='track_point')
             lat = xr.DataArray(track_point_lat, dims='track_point')
 
-            # N.B. no interp.
-            track_point_era5_u = (e5u.isel(time=0).isel(level=levels)
-                                  .sel(longitude=lon, latitude=lat, method='nearest').values)
-            track_point_era5_v = (e5v.isel(time=0).isel(level=levels)
-                                  .sel(longitude=lon, latitude=lat, method='nearest').values)
+            if len(lon):
+                hours.append(h)
+                # N.B. no interp.
+                track_point_era5_u = (e5u.isel(time=0).isel(level=levels)
+                                      .sel(longitude=lon, latitude=lat, method='nearest').values)
+                track_point_era5_v = (e5v.isel(time=0).isel(level=levels)
+                                      .sel(longitude=lon, latitude=lat, method='nearest').values)
 
-            N = len(track_point_lon)
-            uv[h] = dict(
-                time=time,
-                N=N,
-                track_point_era5_u=track_point_era5_u,
-                track_point_era5_v=track_point_era5_v,
-                track_point_vel_x=track_point_vel_x,
-                track_point_vel_y=track_point_vel_y,
-            )
+                N = len(track_point_lon)
+                uv[h] = dict(
+                    time=time,
+                    N=N,
+                    track_point_era5_u=track_point_era5_u,
+                    track_point_era5_v=track_point_era5_v,
+                    track_point_vel_x=track_point_vel_x,
+                    track_point_vel_y=track_point_vel_y,
+                )
             e5u.close()
             e5v.close()
 
-        times = list(chain.from_iterable([[uv[h]['time']] * uv[h]['N'] for h in range(24)]))
-        track_point_era5_u = np.concatenate([uv[h]['track_point_era5_u'] for h in range(24)], axis=1)
-        track_point_era5_v = np.concatenate([uv[h]['track_point_era5_v'] for h in range(24)], axis=1)
-        track_point_vel_x = np.concatenate([uv[h]['track_point_vel_x'] for h in range(24)])
-        track_point_vel_y = np.concatenate([uv[h]['track_point_vel_y'] for h in range(24)])
+        times = list(chain.from_iterable([[uv[h]['time']] * uv[h]['N'] for h in hours]))
+        track_point_era5_u = np.concatenate([uv[h]['track_point_era5_u'] for h in hours], axis=1)
+        track_point_era5_v = np.concatenate([uv[h]['track_point_era5_v'] for h in hours], axis=1)
+        track_point_vel_x = np.concatenate([uv[h]['track_point_vel_x'] for h in hours])
+        track_point_vel_y = np.concatenate([uv[h]['track_point_vel_y'] for h in hours])
         ds = xr.Dataset(data_vars=dict(
                 point_time=('index', times),
                 track_point_era5_u=(['level', 'index'], track_point_era5_u),
@@ -161,7 +167,7 @@ class PlotDay(TaskRule):
 
 class PlotHist(TaskRule):
     @staticmethod
-    def rule_inputs():
+    def rule_inputs(norm):
         inputs = {
             (date.year, date.month, date.day): fmtp(
                 TrackERA5PropagationCorr.rule_outputs['daily_track_era5_data'],
@@ -172,7 +178,8 @@ class PlotHist(TaskRule):
         }
         return inputs
     rule_outputs = {'hist_track_era5_data_fig': (PATHS['figdir'] / 'track_era5_prop' /
-                                                 'hist_track_era5.png')}
+                                                 'hist_track_era5.{norm}.png')}
+    var_matrix = {'norm': ['none', 'lognorm']}
 
     def rule_run(self):
         ds = xr.open_mfdataset(self.inputs.values(), concat_dim='index', combine='nested')
@@ -188,6 +195,7 @@ class PlotHist(TaskRule):
         bins = np.arange(-10 * dbin - dbin / 2, 11 * dbin + dbin / 2, dbin)
         extent = bins[[0, -1, 0, -1]]
         fig, axes = plt.subplots(2, len(levels))
+        fig.set_size_inches(20, 11.26)  # full screen
         fig.suptitle('ERA5 vs MCS')
 
         for i in range(len(levels)):
@@ -202,8 +210,9 @@ class PlotHist(TaskRule):
                 bins=bins,
             )
             ax0, ax1 = axes[:, i]
-            ax0.imshow(hist0.T, origin='lower', extent=extent)
-            ax1.imshow(hist1.T, origin='lower', extent=extent)
+            imshow_kwargs = {} if self.norm == 'none' else {'norm': LogNorm()}
+            ax0.imshow(hist0.T, origin='lower', extent=extent, **imshow_kwargs)
+            im = ax1.imshow(hist1.T, origin='lower', extent=extent, **imshow_kwargs)
             # ax0.scatter(ds.track_point_era5_u[i].values, ds.track_point_vel_x.values, marker='x')
             # ax1.scatter(ds.track_point_era5_v[i].values, ds.track_point_vel_y.values, marker='x')
             res0 = stats.linregress(
@@ -232,7 +241,9 @@ class PlotHist(TaskRule):
             if i == 0:
                 ax0.set_ylabel('Track u')
                 ax1.set_ylabel('Track v')
+        plt.colorbar(im, ax=axes)
 
+        fig.subplots_adjust(left=0.05, right=0.85, bottom=0.5, top=0.95)
         plt.show()
         plt.savefig(self.outputs['hist_track_era5_data_fig'])
 

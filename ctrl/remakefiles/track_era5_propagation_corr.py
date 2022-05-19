@@ -55,17 +55,30 @@ class TrackERA5PropagationCorr(TaskRule):
         hours = []
         for h in range(24):
             print(h)
-            e5u = xr.open_dataarray(e5datadir / f'ecmwf-era5_oper_an_ml_{self.year}{self.month:02d}{self.day:02d}{h:02d}00.u.nc')
-            e5v = xr.open_dataarray(e5datadir / f'ecmwf-era5_oper_an_ml_{self.year}{self.month:02d}{self.day:02d}{h:02d}00.v.nc')
+            # track data every hour on the half hour.
+            track_time = dt.datetime(self.year, self.month, self.day, h, 30)
+            # ERA5 data every hour on the hour.
+            e5time = dt.datetime(self.year, self.month, self.day, h, 0)
+            # Cannot interp track data - get ERA5 before and after and interp
+            # using e.g. ...mean(dim=time).
+            paths = [e5datadir / (f'ecmwf-era5_oper_an_ml_{t.year}{t.month:02d}{t.day:02d}'
+                                  f'{t.hour:02d}00.{var}.nc')
+                     for var in ['u', 'v']
+                     for t in [e5time, e5time + dt.timedelta(hours=1)]]
+            # Only want selected levels,
+            # and lat limited to that of tracks, and midpoint time value.
+            e5uv = (xr.open_mfdataset(paths).sel(latitude=slice(60, -60))
+                    .isel(level=levels).mean(dim='time').load())
+            e5u = e5uv.u
+            e5v = e5uv.v
 
-            # TODO: N.B. 30min offset between track, ERA5 - fix by interp.
-            time = dt.datetime(self.year, self.month, self.day, h, 30)
-            track_point_mask = dstracks.base_time == pd.Timestamp(time)
+            track_point_mask = dstracks.base_time == pd.Timestamp(track_time)
             track_point_lon = dstracks.meanlon.values[track_point_mask]
             track_point_lat = dstracks.meanlat.values[track_point_mask]
 
-            track_point_vel_x = dstracks.movement_distance_x.values[track_point_mask] / 3.6 # km/h -> m/s.
-            track_point_vel_y = dstracks.movement_distance_y.values[track_point_mask] / 3.6 # km/h -> m/s.
+            # km/h -> m/s.
+            track_point_vel_x = dstracks.movement_distance_x.values[track_point_mask] / 3.6
+            track_point_vel_y = dstracks.movement_distance_y.values[track_point_mask] / 3.6
 
             # This is the same way you select values along a transect.
             # But here I just want at unconnected points.
@@ -75,14 +88,12 @@ class TrackERA5PropagationCorr(TaskRule):
             if len(lon):
                 hours.append(h)
                 # N.B. no interp.
-                track_point_era5_u = (e5u.isel(time=0).isel(level=levels)
-                                      .sel(longitude=lon, latitude=lat, method='nearest').values)
-                track_point_era5_v = (e5v.isel(time=0).isel(level=levels)
-                                      .sel(longitude=lon, latitude=lat, method='nearest').values)
+                track_point_era5_u = e5u.sel(longitude=lon, latitude=lat, method='nearest').values
+                track_point_era5_v = e5v.sel(longitude=lon, latitude=lat, method='nearest').values
 
                 N = len(track_point_lon)
                 uv[h] = dict(
-                    time=time,
+                    time=track_time,
                     N=N,
                     track_point_era5_u=track_point_era5_u,
                     track_point_era5_v=track_point_era5_v,

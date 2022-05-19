@@ -233,12 +233,14 @@ class McsTracks:
         mask = lst_mask & nan_mask
         return meanlon[mask], meanlat[mask]
 
-    def plot_diurnal_cycle(self, dhours=6, anomaly=True):
-        sizes = {1: (4, 6), 2: (4, 3), 3: (4, 2), 4: (2, 3), 6: (2, 2)}
+    def plot_diurnal_cycle(self, dhours=6, mode='mean'):
+        sizes = {1: (4, 6), 2: (4, 3), 3: (4, 2), 4: (2, 3), 6: (2, 2), 24: (1, 1)}
         size = sizes[dhours]
         fig, axes = plt.subplots(
             size[0], size[1], subplot_kw=dict(projection=cartopy.crs.PlateCarree()), sharex=True, sharey=True
         )
+        if dhours == 24:
+            axes = np.array([axes])
         fig.subplots_adjust(left=0.05, right=0.95, bottom=0.05, top=0.95)
         xmin = -180
         xmax = 180
@@ -251,37 +253,49 @@ class McsTracks:
         bxmid = (bx[1:] + bx[:-1]) / 2
         bymid = (by[1:] + by[:-1]) / 2
 
-        if anomaly:
-            meanlon = self.dstracks.meanlon.values.flatten()
-            meanlat = self.dstracks.meanlat.values.flatten()
-            lon = meanlon[~np.isnan(meanlon)]
-            lat = meanlat[~np.isnan(meanlat)]
-            mean_hist, _, _ = np.histogram2d(lon, lat, bins=(bx, by), density=True)
+        nan_mask = ~np.isnan(self.dstracks.meanlon.values)
+        meanlon = self.dstracks.meanlon.values[nan_mask]
+        meanlat = self.dstracks.meanlat.values[nan_mask]
+
+        if mode in ['anomaly', 'anomaly_frac']:
+            mean_hist, _, _ = np.histogram2d(meanlon, meanlat, bins=(bx, by), density=True)
             diff_hists = {}
 
         hists = {}
-        hist_max = 0
+
+        base_time = pd.DatetimeIndex(self.dstracks.base_time.values[nan_mask])
+
+        lst_offset_hours = meanlon / 180 * 12
+        time_hours = (base_time.hour + base_time.minute / 60).values
+        lst = time_hours + lst_offset_hours
+        lst = lst % 24
+
         for i, ax in enumerate(axes.flatten()):
             hour = i * dhours
-            print(hour)
             ax.coastlines()
             ax.set_title(f'LST: {hour} - {hour + dhours}')
 
-            lon, lat = self.get_lon_lat_for_local_solar_time(hour, hour + dhours)
+            lst_mask = (lst > hour) & (lst < hour + dhours)
+            lon = meanlon[lst_mask]
+            lat = meanlat[lst_mask]
 
             hist, _, _ = np.histogram2d(lon, lat, bins=(bx, by), density=True)
             hists[i] = hist
-            if anomaly:
+            if mode == 'anomaly':
                 diff_hists[i] = hist - mean_hist
-            hist_max = max(hist.max(), hist_max)
+            elif mode == 'anomaly_frac':
+                diff_hists[i] = hist / mean_hist
 
-        if anomaly:
-            diff_hist_min = min([diff_hists[i].min() for i, ax in enumerate(axes.flatten())])
-            diff_hist_max = max([diff_hists[i].max() for i, ax in enumerate(axes.flatten())])
+        if mode == 'anomaly':
+            diff_hist_min = min([np.nanmin(diff_hists[i]) for i, ax in enumerate(axes.flatten())])
+            diff_hist_max = max([np.nanmax(diff_hists[i]) for i, ax in enumerate(axes.flatten())])
 
             abs_max = round_away_from_zero_to_sigfig(max(abs(diff_hist_min), abs(diff_hist_max)), 2)
 
             levels = np.array([-1, -5e-1, -2e-1, -1e-1, -5e-2, 5e-2, 1e-1, 2e-1, 5e-1, 1]) * abs_max
+            cmap = plt.get_cmap('RdBu_r').copy()
+        elif mode == 'anomaly_frac':
+            levels = np.array([0, 1 / 2, 2 / 3, 4 / 5, 0.9, 0.95, 1.05, 1.1, 5 / 4, 3 / 2, 2, 10])
             cmap = plt.get_cmap('RdBu_r').copy()
         else:
             cmap = plt.get_cmap('Spectral_r').copy()
@@ -289,17 +303,14 @@ class McsTracks:
         norm = colors.BoundaryNorm(boundaries=levels, ncolors=256)
 
         for i, ax in enumerate(axes.flatten()):
-            if anomaly:
+            if mode in ['anomaly', 'anomaly_frac']:
                 hist = diff_hists[i]
             else:
                 hist = hists[i]
             extent = (xmin, xmax, ymin, ymax)
             im = ax.imshow(hist.T, origin='lower', extent=extent, cmap=cmap, norm=norm)
 
-        if anomaly:
-            plt.colorbar(im, ax=axes, label='MCS density anomaly')
-        else:
-            plt.colorbar(im, ax=axes, label='MCS density')
+        plt.colorbar(im, ax=axes, label=f'MCS density {mode}')
 
     def tracks_at_time(self, datetime):
         datetime = pd.Timestamp(datetime).to_numpy()

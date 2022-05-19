@@ -16,6 +16,7 @@ ALL_PATHS = {
         'pixeldir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/MCS_Global/mcstracking'),
         'outdir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/output'),
         'figdir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/figs'),
+        'era5dir': Path('/badc/ecmwf-era5'),
     },
 }
 

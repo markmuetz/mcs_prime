@@ -152,8 +152,11 @@ class TrackERA5LinkData(TaskRule):
                                   f'{t.hour:02d}00.{var}.nc')
                      for var in ['u', 'v']
                      for t in [e5time, e5time + dt.timedelta(hours=1)]]
-            # Only want levels 38-137 (lowest 100 levels), and lat limited to that of tracks, and midpoint time value.
-            e5uv = xr.open_mfdataset(paths).sel(latitude=slice(60, -60)).sel(level=slice(38, None)).mean(dim='time').load()
+            # Only want levels 77-137 (lowest 60 levels), and lat limited to that of tracks, and midpoint time value.
+            # Why use 77? I have done testing which shows that the distribution of
+            # mindiff level is bimodal, with a minimum at level 77. I am only really interested
+            # in "steering level" winds below this, so find the mindiff level only in levels 77+.
+            e5uv = xr.open_mfdataset(paths).sel(latitude=slice(60, -60)).sel(level=slice(77, None)).mean(dim='time').load()
 
             e5u = e5uv.u
             e5v = e5uv.v
@@ -193,7 +196,7 @@ class TrackERA5LinkData(TaskRule):
                           (track_point_era5_v.values - track_point_vel_y[None, :])**2)
 
                 # What does idx hold? It is the level index of the minimum squared difference
-                # between the track point velocity and ERA5 winds. The index starts at level 38 (i.e. 0 index == level 38).
+                # between the track point velocity and ERA5 winds. The index starts at level 77 (i.e. 0 index == level 77).
                 idx = np.argmin(sqdiff, axis=0)
 
                 N = len(track_point_lon)

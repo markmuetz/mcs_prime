@@ -29,7 +29,7 @@ def _short_hostname():
 
 
 hostname = _short_hostname()
-if hostname[:4] == 'host':
+if hostname[:4] == 'host' or hostname == 'jupyter-mmuetz':
     hostname = 'jasmin'
 
 if hostname not in ALL_PATHS:

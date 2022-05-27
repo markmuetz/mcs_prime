@@ -22,5 +22,4 @@ mcs_prime.egg-info
 # local tmp files
 data
 figs
-
-.
+.results_cache

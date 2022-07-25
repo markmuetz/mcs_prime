@@ -1,0 +1,150 @@
+#!/usr/bin/env python
+"""Script that syncs MASS urls to the current directory.
+
+Usage: mcs-prime-moo-sync-urls <mass_url_list> <outlog>
+
+* Reads in MASS urls from <mass_url_list> filename in the format moose:/crum/u-cp308/apa.pp/cp308a.pa1988dec.pp
+* Checks filesise of each URL using `moo ls -l <urls>`
+* Checks whether filename exists locally, and if so checks if it is complete
+* uses `moo get <urls>` for all incomplete files
+"""
+import datetime as dt
+import sys
+from pathlib import Path
+from subprocess import CalledProcessError
+
+from remake.util import sysrun
+
+
+def get_mass_urls_filesizes(mass_urls):
+    """Get MASS filesize by parsing `moo ls -l <mass_urls>`"""
+    # F keith.williams              0.00 GBP        426048008 2022-07-18 22:56:10 GMT moose:/crum/u-cp308/apa.pp/cp308a.pa1988dec.pp
+    # F keith.williams              0.00 GBP        262564568 2022-07-18 22:22:40 GMT moose:/crum/u-cp308/apb.pp/cp308a.pb19880901.pp
+    filesizes = {}
+    ls_output = moo_ls_l(mass_urls).split('\n')
+    urls = []
+    for line in [l for l in ls_output if l]:
+        # print(line)
+        split_line = line.split()
+        urls.append(split_line[-1])
+        filesizes[mass_filename(split_line[-1])] = int(split_line[4])
+    return urls, filesizes
+
+
+def moo_ls_l(mass_urls):
+    """return output of `moo ls -l <mass_urls>`"""
+    try:
+        ret = sysrun(f'moo ls -l {mass_urls}')
+        return ret.stdout
+    except CalledProcessError as e:
+        print(e.stderr)
+        raise
+
+
+def moo_get(mass_urls):
+    """perform `moo get <mass_urls>` and return output"""
+    try:
+        ret = sysrun(f'moo get -v {mass_urls} .')
+        return ret.stdout
+    except CalledProcessError as e:
+        print(e.stderr)
+        raise
+
+
+def mass_filename(mass_url):
+    """convert a mass_url into its filename"""
+    # A MASS url is e.g.:
+    # moose:/crum/u-cp308/apa.pp/cp308a.pa1988dec.pp
+    return Path(mass_url.split(':')[1]).name
+
+
+if __name__ == '__main__':
+    if not len(sys.argv) == 3:
+        print(f'Usage: {sys.argv[0]} <mass_url_list> <outlog>')
+        sys.exit(1)
+    mass_url_list = sys.argv[1]
+    outlog = Path(sys.argv[2])
+    base_mass_urls = [f for f in Path(mass_url_list).read_text().split() if f]
+    outlog_base = Path(outlog)
+    c = 1
+    while outlog.exists():
+        outlog = outlog_base.parent / (outlog_base.stem + f'.{c}' + outlog_base.suffix)
+        c += 1
+
+    with outlog.open('w') as log:
+        def write(msg):
+            print(msg)
+            log.write(msg + '\n')
+
+        write(f'STARTTIME={dt.datetime.now()}')
+        write(f'CMD={" ".join(sys.argv)}')
+        write(f'OUTLOG={outlog}')
+
+        write('')
+        write(f'=== MASS url list {mass_url_list} ===')
+        for u in base_mass_urls:
+            write(f'{u}')
+        write(f'=== MASS url list {mass_url_list} ===')
+
+        # Get URLs, filesizes from MASS.
+        # This will expand any wildcards (*) in mass_url_list.
+        retrieved_mass_urls, mass_filesizes = get_mass_urls_filesizes(' '.join(base_mass_urls))
+        file_paths = [Path(mass_filename(u)) for u in retrieved_mass_urls]
+
+        urls_from_path = {mass_filename(url): url for url in retrieved_mass_urls}
+        # Check there are no duplicate filenames.
+        if len(retrieved_mass_urls) != len(set(file_paths)):
+            raise Exception('Duplicate filenames detected')
+
+        if len(base_mass_urls) != len(retrieved_mass_urls):
+            write('')
+            write(f'=== retrieved MASS URLs ===')
+            for u in retrieved_mass_urls:
+                write(f'{u}')
+            write(f'=== retrieved MASS URLs ===')
+
+        write('')
+        write('=== check local files ===')
+        # Check if a path already exists, and if it does check its size matches that from MASS.
+        mass_urls = []
+        for path in file_paths:
+            if path.exists():
+                if path.stat().st_size != mass_filesizes[path.name]:
+                    mass_urls.append(urls_from_path[path.name])
+                    # Delete the file as it is not big enough.
+                    write(f'INCOMPLETE: {path}'
+                          f' ({path.stat().st_size} < {mass_filesizes[path.name]})')
+                    write(f'=> delete {path}')
+                    path.unlink()
+                else:
+                    write(f'complete: {path}')
+            else:
+                write(f'DOES NOT EXIST: {path}')
+                mass_urls.append(urls_from_path[path.name])
+        write('=== check local files ===')
+
+        if not mass_urls:
+            write('')
+            write(f'No urls remaining to download.')
+            sys.exit(0)
+
+        write('')
+        write(f'=== get URLs ===')
+        for u in mass_urls:
+            write(f'{u}')
+        write(f'=== get URLs ===')
+
+        write('')
+        write(f'=== moo get output ===')
+        write(moo_get(' '.join(mass_urls)) + '')
+        write(f'=== moo get output ===')
+
+        write('')
+        mo_licence_paths = sorted(Path.cwd().glob('MetOffice_data_licence.*'))
+        for path in mo_licence_paths:
+            write(f'rm {path}')
+            path.unlink()
+
+        write('')
+        write(f'ENDTIME={dt.datetime.now()}')
+

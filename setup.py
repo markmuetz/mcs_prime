@@ -40,6 +40,7 @@ setup(
     ],
     scripts=[
         'bin/mcs-prime-rsync-jasmin-figures',
+        'bin/mcs-prime-moo-sync-urls',
     ],
     python_requires='>=3.10',
     # These should all be met if you use the conda_env in envs.

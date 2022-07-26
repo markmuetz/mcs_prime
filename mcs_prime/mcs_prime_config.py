@@ -7,8 +7,10 @@ ALL_PATHS = {
         'datadir': Path('/home/markmuetz/Datasets/MCS_PRIME'),
         'statsdir': Path('/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/stats'),
         'pixeldir': Path('/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/mcstracking'),
+        'simdir': Path('/home/markmuetz/mirrors/jasmin/gws/nopw/j04/mcsprime/mmuetz/data/UM_sims/'),
         'outdir': Path('/home/markmuetz/MCS_PRIME_output/output'),
         'figdir': Path('/home/markmuetz/MCS_PRIME_output/figs'),
+        'dropboxdir': Path('/home/markmuetz/Dropbox/Academic/Projects/MCS_PRIME/Shared/MCS_PRIME_figures'),
     },
     'jasmin': {
         'datadir': Path('/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME'),

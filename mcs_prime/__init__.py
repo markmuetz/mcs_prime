@@ -4,9 +4,9 @@ from .version import VERSION
 
 __version__ = VERSION
 __all__ = [
-    'McsTracks',
-    'McsTrack',
-    'PixelData',
-    'PixelFrames',
-    'PixelFrame',
+    "McsTracks",
+    "McsTrack",
+    "PixelData",
+    "PixelFrames",
+    "PixelFrame",
 ]

@@ -47,6 +47,7 @@ setup(
     install_requires=[
         'cartopy',
         'cdsapi',
+        'IPython',
         'matplotlib',
         'numpy',
         'pandas',

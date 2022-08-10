@@ -6,7 +6,7 @@ import iris
 
 def get_cell_methods(cms):
     if cms:
-        return ','.join([f'{m.method}:{",".join(m.coord_names)} - {",".join(m.intervals)}'
+        return ','.join([f'{m.method}:{";".join(m.coord_names)} - {";".join(m.intervals)}'
                          for m in cms])
     else:
         return None

@@ -21,13 +21,11 @@ ALL_PATHS = {
         ),
     },
     "jasmin": {
-        "datadir": Path("/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME"),
-        "statsdir": Path("/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/MCS_Global/stats"),
-        "pixeldir": Path(
-            "/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/MCS_Global/mcstracking"
-        ),
-        "outdir": Path("/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/output"),
-        "figdir": Path("/gws/nopw/j04/cosmic/mmuetz/data/MCS_PRIME/figs"),
+        "datadir": Path("/gws/nopw/j04/mcsprime/mmuetz/data/"),
+        "statsdir": Path("/gws/nopw/j04/mcsprime/mmuetz/data/MCS_Global/stats"),
+        "pixeldir": Path("/gws/nopw/j04/mcsprime/mmuetz/data/MCS_Global/mcstracking"),
+        "outdir": Path("/gws/nopw/j04/mcsprime/mmuetz/data/mcs_prime_output"),
+        "figdir": Path("/gws/nopw/j04/mcsprime/mmuetz/data/mcs_prime_figs"),
         "era5dir": Path("/badc/ecmwf-era5"),
     },
 }

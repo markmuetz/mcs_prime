@@ -23,7 +23,7 @@ def _create_fig_ax():
 
 class PixelData:
     def __init__(self, pixel_data_dir):
-        track_pixel_paths = sorted(pixel_data_dir.glob("*/*.nc"))
+        track_pixel_paths = sorted(pixel_data_dir.glob("**/*.nc"))
         self.date_path_map = {
             dt.datetime.strptime(p.stem, "mcstrack_%Y%m%d_%H%M"): p
             for p in track_pixel_paths
@@ -156,7 +156,7 @@ class PixelFrame:
 
 class McsTracks:
     @classmethod
-    def mfload(cls, stats_paths=None, pixeldir=None, round_times=True):
+    def mfopen(cls, stats_paths=None, pixeldir=None, round_times=True):
         if stats_paths is None:
             stats_paths = sorted(
                 PATHS["statsdir"].glob(
@@ -180,7 +180,7 @@ class McsTracks:
         return cls(dstracks, pixel_data)
 
     @classmethod
-    def load(cls, stats_path, pixeldir=None, round_times=True):
+    def open(cls, stats_path, pixeldir=None, round_times=True):
         if pixeldir is None:
             pixeldir = PATHS["pixeldir"]
         dstracks = xr.open_dataset(stats_path)

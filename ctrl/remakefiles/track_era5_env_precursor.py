@@ -41,7 +41,9 @@ else:
         batch_info = pickle.load(fp)
 
 # batch_info = [(y, b) for y, b in batch_info if y == 2019]
-
+years = sorted(set([y for y, b in batch_info]))
+nbatch_per_year = {year: len([(y, b) for y, b in batch_info if y == year])
+                   for year in years}
 
 class TrackERA5EnvPrecursor(TaskRule):
     rule_inputs = {}
@@ -138,3 +140,30 @@ class TrackERA5EnvPrecursor(TaskRule):
         dsout.to_netcdf(self.outputs['daily_track_era5_data'], encoding=encoding)
         print(end - start)
 
+
+class CombineTrackERA5EnvPrecursor(TaskRule):
+    @staticmethod
+    def rule_inputs(year):
+        inputs = {f'batch-{b:02d}': fmtp(TrackERA5EnvPrecursor.rule_outputs['daily_track_era5_data'],
+                                         year=year,
+                                         batch=b)
+                  for b in range(nbatch_per_year[year])}
+        return inputs
+
+    rule_outputs = {'track_era5_data': (PATHS['outdir'] / 'track_era5_env_precursor' /
+                                        '{year}' /
+                                        'daily_track_era5_data_{year}.nc')}
+
+    var_matrix = {'year': years}
+
+    def rule_run(self):
+        input_paths = self.inputs.values()
+        ds = xr.open_mfdataset(
+            input_paths,
+            concat_dim='tracks',
+            combine='nested',
+            mask_and_scale=False,
+        )
+        comp = dict(zlib=True, complevel=4)
+        encoding = {var: comp for var in ds.data_vars}
+        ds.to_netcdf(self.outputs['track_era5_data'], encoding=encoding)

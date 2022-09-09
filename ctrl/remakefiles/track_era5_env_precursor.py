@@ -4,6 +4,7 @@ import pickle
 from pathlib import Path
 from timeit import default_timer
 
+from cartopy.util import add_cyclic_point
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -25,7 +26,8 @@ NTRACKS_PER_BATCH = 1000
 # Well, I need to know how many tracks are in each year, so I can work out how many batches
 # I need to use each year. This has to be done before any tasks are created, so do on module load
 # and cache results. If I need to add more years I can just delete and recalc.
-batch_info_path = PATHS['outdir'] / 'track_era5_env_precursor' / 'year_batch_info.pkl'
+batch_info_path = (PATHS['outdir'] / 'track_era5_env_precursor' /
+                   f'year_batch_info_{NTRACKS_PER_BATCH}.pkl')
 if not batch_info_path.exists():
     batch_info = []
     for year in range(2019, 2021):
@@ -44,6 +46,34 @@ else:
 years = sorted(set([y for y, b in batch_info]))
 nbatch_per_year = {year: len([(y, b) for y, b in batch_info if y == year])
                    for year in years}
+
+
+def xr_add_cyclic_point(da, lon_name='longitude'):
+    """Pad data array in longitude dimension.
+
+    * Taken from https://stackoverflow.com/a/60913814/54557
+    * Modified to handle data on model levels as well.
+    * Use add_cyclic_point to pad input data.
+    * Relies on min lon value in da being 0.
+
+    :param da: xr.DataArray with dimensions including longitude
+    :param lon_name: name of longitude dimension in da
+    :returns: padded copy of da
+    """
+    lon_idx = da.dims.index(lon_name)
+    wrap_data, wrap_lon = add_cyclic_point(da.values, coord=da.longitude, axis=lon_idx)
+
+    # Copy old coords and modify longitude.
+    new_coords = {dim: da.coords[dim] for dim in da.dims}
+    new_coords[lon_name] = wrap_lon
+
+    # Generate output DataArray with new data but same structure as input.
+    out_da = xr.DataArray(data=wrap_data,
+                          coords=new_coords,
+                          dims=da.dims,
+                          attrs=da.attrs)
+    return out_da
+
 
 class TrackERA5EnvPrecursor(TaskRule):
     rule_inputs = {}
@@ -120,20 +150,22 @@ class TrackERA5EnvPrecursor(TaskRule):
             if len(lon):
                 var_data = {}
                 for var in variables:
-                    data = e5[var].interp(longitude=lon, latitude=lat).values
                     # if lon > 359.75, cannot interp and value is nan.
-                    # record number of times this happens.
+                    # data = e5[var].interp(longitude=lon, latitude=lat).values
+                    # Fix by padding data.
+                    e5_padded = xr_add_cyclic_point(e5[var])
+                    data = e5_padded.interp(longitude=lon, latitude=lat).values
                     mask = np.isnan(data)
-                    num_filtered_points += mask.sum()
+                    assert mask.sum() == 0
                     # Note, mask works on this because it has the same shape.
                     dsout[var].values[track_point_mask] = data
 
             e5.close()
             track_time += dt.timedelta(hours=1)
 
-        dsout.attrs = dict(
-            num_filtered_points=num_filtered_points,
-        )
+        # TODO: Set to show how created.
+        # dsout.attrs = dict(
+        # )
         end = default_timer()
         comp = dict(zlib=True, complevel=4)
         encoding = {var: comp for var in dsout.data_vars}
@@ -229,12 +261,13 @@ class TrackERA5EnvPrecursorShear(TaskRule):
             if len(lon):
                 var_data = {}
                 for var in variables:
-                    # TODO: Could solve this with cartopy.util.add_cyclic_point.
-                    data = e5[var].interp(longitude=lon, latitude=lat).values
                     # if lon > 359.75, cannot interp and value is nan.
-                    # record number of times this happens.
+                    # data = e5[var].interp(longitude=lon, latitude=lat).values
+                    # Fix by padding data.
+                    e5_padded = xr_add_cyclic_point(e5[var])
+                    data = e5_padded.interp(longitude=lon, latitude=lat).values
                     mask = np.isnan(data)
-                    num_filtered_points += mask.sum()
+                    assert mask.sum() == 0
                     # Note, mask works on dsout[var] because it has the same shape as dstracks.
                     # data comes from ERA5, and has coords (level, npoints),
                     # dsout has coords which are the opposite way round, because mask selects npoint's
@@ -245,9 +278,9 @@ class TrackERA5EnvPrecursorShear(TaskRule):
             e5.close()
             track_time += dt.timedelta(hours=1)
 
-        dsout.attrs = dict(
-            num_filtered_points=num_filtered_points,
-        )
+        # TODO: Set to show how created.
+        # dsout.attrs = dict(
+        # )
         end = default_timer()
         comp = dict(zlib=True, complevel=4)
         encoding = {var: comp for var in dsout.data_vars}

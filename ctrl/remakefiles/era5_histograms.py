@@ -3,7 +3,10 @@ import datetime as dt
 from functools import partial
 
 import numpy as np
+import pandas as pd
 import xarray as xr
+import xesmf as xe
+
 
 from remake import Remake, TaskRule
 from remake.util import format_path as fmtp
@@ -87,3 +90,150 @@ class CombineERA5Hist(TaskRule):
     def rule_run(self):
         ds = xr.open_mfdataset(self.inputs.values())
         ds.to_netcdf(self.outputs['hist'])
+
+
+class GenRegionalRegridder(TaskRule):
+    rule_inputs = {'cape': (PATHS['era5dir'] / 'data/oper/an_sfc/'
+                            '2020/01/01'
+                            '/ecmwf-era5_oper_an_sfc_'
+                            '202001010000.cape.nc'),
+                   'pixel': (PATHS['pixeldir'] /
+                             '20200101.0000_20210101.0000/2020/01/01' /
+                             'mcstrack_20200101_0030.nc')}
+    rule_outputs = {'regridder': (PATHS['outdir'] / 'regional_era5_histograms' /
+                                  'regridder' /
+                                  'bilinear_1200x3600_481x1440_peri.nc')}
+
+    def rule_run(self):
+        e5cape = xr.open_dataarray(self.inputs['cape'])
+        dspixel = xr.open_dataset(self.inputs['pixel'])
+
+        e5cape = e5cape.sel(latitude=slice(60, -60)).isel(time=0)
+        pixel_precip = dspixel.precipitation.isel(time=0)
+        # Note, quite a challenging regrid:
+        # * lat direction is different,
+        # * ERA5 lon: 0--360, pixel lon: -180--180.
+        # xesmf seems to manage without any issue though.
+        # Uses bilinear and periodic regridding.
+        regridder = xe.Regridder(pixel_precip, e5cape, 'bilinear', periodic=True)
+        regridder.to_netcdf(self.outputs['regridder'])
+
+
+def gen_times(year, month):
+    e5times = []
+    time = dt.datetime(year, month, 1, 0)
+    if month == 12:
+        end = dt.datetime(year + 1, 1, 1, 0)
+    else:
+        end = dt.datetime(year, month + 1, 1, 0)
+
+    while time <= end:
+        e5times.append(time)
+        time += dt.timedelta(minutes=60)
+    return e5times, [t + dt.timedelta(minutes=30) for t in e5times[:-1]]
+
+
+class RegionalERA5Hist(TaskRule):
+    @staticmethod
+    def rule_inputs(year, month, var):
+        # TODO: Not all files exist! Have to remove ones that do not.
+        e5times, pixel_times = gen_times(year, month)
+        e5inputs = {f'era5_{t}': (PATHS['era5dir'] /
+                                  f'data/oper/an_sfc/{t.year}/{t.month:02d}/{t.day:02d}' /
+                                  (f'ecmwf-era5_oper_an_sfc_{t.year}{t.month:02d}{t.day:02d}'
+                                   f'{t.hour:02d}00.{var}.nc'))
+                    for t in e5times}
+
+        if year == 2000:
+            start_date = '20000601'
+        else:
+            start_date = f'{year}0101'
+        pixel_inputs = {f'pixel_{t}': (PATHS['pixeldir'] /
+                                       f'{start_date}.0000_{t.year + 1}0101.0000'
+                                       f'/{t.year}/{t.month:02d}/{t.day:02d}' /
+                                       f'mcstrack_{t.year}{t.month:02d}{t.day:02d}_{t.hour:02d}30.nc')
+                        for t in pixel_times}
+        inputs = {**e5inputs, **pixel_inputs}
+
+        inputs['tracks'] = (PATHS['statsdir'] /
+                            f'mcs_tracks_final_extc_{start_date}.0000_{year + 1}0101.0000.nc')
+        inputs['regridder'] = GenRegionalRegridder.rule_outputs['regridder']
+        return inputs
+
+    rule_outputs = {'hist': (PATHS['outdir'] / 'regional_era5_histograms' /
+                             '{year}' /
+                             'monthly_{var}_hist_{year}_{month:02d}.nc')}
+
+    var_matrix = {'year': years, 'month': months, 'var': ['cape']}
+
+    def rule_run(self):
+        tracks = McsTracks.open(self.inputs['tracks'], None)
+
+        e5times, pixel_times = gen_times(self.year, self.month)
+        e5inputs = {t: self.inputs[f'era5_{t}']
+                    for t in e5times}
+        pixel_inputs = {t: self.inputs[f'pixel_{t}']
+                        for t in pixel_times}
+
+        regridder = None
+        for time in pixel_times:
+            print(time)
+            # Get cloudnumbers (cns) for tracks at given time.
+            pdtime = pd.Timestamp(time)
+            ts = tracks.tracks_at_time(time)
+            frame = ts.pixel_data.get_frame(time)
+            tmask = (ts.dstracks.base_time == pdtime).values
+            cns = ts.dstracks.cloudnumber.values[tmask]
+            cns.sort()
+
+            # Load the e5 data and interp in time to pixel time.
+            e5time1 = time - dt.timedelta(minutes=30)
+            e5time2 = time + dt.timedelta(minutes=30)
+            e5cape = (xr.open_mfdataset([e5inputs[t] for t in [e5time1, e5time2]])[self.var]
+                      .mean(dim='time').sel(latitude=slice(60, -60)).load())
+
+            # Load the pixel data.
+            dspixel = xr.open_dataset(pixel_inputs[time])
+            pixel_precip = dspixel.precipitation.isel(time=0).load()
+
+            # Reload the regridder.
+            if regridder is None:
+                regridder = xe.Regridder(pixel_precip, e5cape, 'bilinear', periodic=True,
+                                         reuse_weights=True, weights=self.inputs['regridder'])
+
+            if True:
+                # This is a lot faster! If you don't need the individual cloudnumber info
+                # you can use this to partition the 2D grid into MCS/non-MCS.
+                e5mcs_mask = regridder(frame.dspixel.cloudnumber.isin(cns).astype(float)) > 0.5
+                mcs_mask = e5mcs_mask[0]
+            else:
+                # Quite slow.
+                # Perform the regrid for each cloudnumber.
+                mask_regridded = []
+                for i in cns:
+                    print(i)
+                    mask_regridded.append(regridder((frame.dspixel.cloudnumber == i).astype(float)))
+
+                da_mask_regridded = xr.concat(mask_regridded, pd.Index(cns, name='cn'))
+                cn_e5 = ((da_mask_regridded > 0.5).astype(int) * da_mask_regridded.cn).sum(dim='cn')
+
+                # Make masks that let me select out different regions.
+                mcs_mask = cn_e5.values[0] > 0.5
+            e5tb = regridder(dspixel.tb)
+            # N.B. Feng et al. 2021 uses Tb < 225 to define cold cloud cores.
+            e5conv_mask = e5tb[0] < 225
+
+            # The three masks used are mutually exclusive:
+            # mcs_mask -- all values within MCS CCS.
+            # ~mcs_mask & e5conv_mask -- all values not in MCS but in convective regions.
+            # ~mcs_mask & ~e5conv_mask -- env.
+            assert (mcs_mask.sum() +
+                    (~mcs_mask & e5conv_mask).sum() +
+                    (~mcs_mask & ~e5conv_mask).sum()) == mcs_mask.size
+
+            # Calc hists.
+            bins = np.arange(0, 5000, 10)
+            hist = {}
+            hist['MCS'] = np.histogram(e5cape.values[mcs_mask], bins=bins, density=True);
+            hist['conv'] = np.histogram(e5cape.values[~mcs_mask & e5conv_mask], bins=bins, density=True);
+            hist['env'] = np.histogram(e5cape.values[~mcs_mask & ~e5conv_mask], bins=bins, density=True);

@@ -92,7 +92,7 @@ class CombineERA5Hist(TaskRule):
         ds.to_netcdf(self.outputs['hist'])
 
 
-class GenRegionalRegridder(TaskRule):
+class GenConditionalRegridder(TaskRule):
     rule_inputs = {'cape': (PATHS['era5dir'] / 'data/oper/an_sfc/'
                             '2020/01/01'
                             '/ecmwf-era5_oper_an_sfc_'
@@ -100,7 +100,7 @@ class GenRegionalRegridder(TaskRule):
                    'pixel': (PATHS['pixeldir'] /
                              '20200101.0000_20210101.0000/2020/01/01' /
                              'mcstrack_20200101_0030.nc')}
-    rule_outputs = {'regridder': (PATHS['outdir'] / 'regional_era5_histograms' /
+    rule_outputs = {'regridder': (PATHS['outdir'] / 'conditional_era5_histograms' /
                                   'regridder' /
                                   'bilinear_1200x3600_481x1440_peri.nc')}
 
@@ -133,10 +133,9 @@ def gen_times(year, month):
     return e5times, [t + dt.timedelta(minutes=30) for t in e5times[:-1]]
 
 
-class RegionalERA5Hist(TaskRule):
+class ConditionalERA5Hist(TaskRule):
     @staticmethod
     def rule_inputs(year, month, var):
-        # TODO: Not all files exist! Have to remove ones that do not.
         e5times, pixel_times = gen_times(year, month)
         e5inputs = {f'era5_{t}': (PATHS['era5dir'] /
                                   f'data/oper/an_sfc/{t.year}/{t.month:02d}/{t.day:02d}' /
@@ -148,19 +147,23 @@ class RegionalERA5Hist(TaskRule):
             start_date = '20000601'
         else:
             start_date = f'{year}0101'
-        pixel_inputs = {f'pixel_{t}': (PATHS['pixeldir'] /
-                                       f'{start_date}.0000_{t.year + 1}0101.0000'
-                                       f'/{t.year}/{t.month:02d}/{t.day:02d}' /
-                                       f'mcstrack_{t.year}{t.month:02d}{t.day:02d}_{t.hour:02d}30.nc')
-                        for t in pixel_times}
+        # Not all files exist! Do not include these.
+        pixel_paths = [(PATHS['pixeldir'] /
+                        f'{start_date}.0000_{t.year + 1}0101.0000'
+                        f'/{t.year}/{t.month:02d}/{t.day:02d}' /
+                        f'mcstrack_{t.year}{t.month:02d}{t.day:02d}_{t.hour:02d}30.nc')
+                       for t in pixel_times]
+        pixel_inputs = {f'pixel_{t}': p
+                        for t, p in zip(pixel_times, pixel_paths)
+                        if p.exists()}
         inputs = {**e5inputs, **pixel_inputs}
 
         inputs['tracks'] = (PATHS['statsdir'] /
                             f'mcs_tracks_final_extc_{start_date}.0000_{year + 1}0101.0000.nc')
-        inputs['regridder'] = GenRegionalRegridder.rule_outputs['regridder']
+        inputs['regridder'] = GenConditionalRegridder.rule_outputs['regridder']
         return inputs
 
-    rule_outputs = {'hist': (PATHS['outdir'] / 'regional_era5_histograms' /
+    rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
                              '{year}' /
                              'monthly_{var}_hist_{year}_{month:02d}.nc')}
 
@@ -169,36 +172,71 @@ class RegionalERA5Hist(TaskRule):
     def rule_run(self):
         tracks = McsTracks.open(self.inputs['tracks'], None)
 
-        e5times, pixel_times = gen_times(self.year, self.month)
+        e5times, orig_pixel_times = gen_times(self.year, self.month)
         e5inputs = {t: self.inputs[f'era5_{t}']
                     for t in e5times}
+        # Note, this is a subset of times based on which times exist.
+        pixel_times = [t for t in orig_pixel_times if f'pixel_{t}' in self.inputs]
         pixel_inputs = {t: self.inputs[f'pixel_{t}']
                         for t in pixel_times}
 
+        month_start_day = dt.datetime(self.year, self.month, 1).timetuple().tm_yday
+        bins = np.linspace(0, 5000, 501)
+        mids = (bins[1:] + bins[:-1]) / 2
+
+        hists = np.zeros((len(pixel_times), mids.size))
+
+        # Make a dataset to hold all the histogram data.
+        # max. len time is 24x31.
+        dsout = xr.Dataset(
+            coords=dict(
+                time=pixel_times,
+                hist_mid=mids,
+                bins=bins,
+            ),
+            data_vars={
+                f'{self.var}_MCS': (('time', 'hist_mid'), hists.copy()),
+                f'{self.var}_conv': (('time', 'hist_mid'), hists.copy()),
+                f'{self.var}_env': (('time', 'hist_mid'), hists.copy()),
+            }
+        )
         regridder = None
-        for time in pixel_times:
+        # Looping over subset of times.
+        for i, time in enumerate(pixel_times):
             print(time)
             # Get cloudnumbers (cns) for tracks at given time.
             pdtime = pd.Timestamp(time)
             ts = tracks.tracks_at_time(time)
             frame = ts.pixel_data.get_frame(time)
+            # tmask is a 2d mask that spans multiple tracks, getting
+            # the cloudnumbers at *one time only*, that can be
+            # used to get cloudnumbers.
             tmask = (ts.dstracks.base_time == pdtime).values
+            if tmask.sum() == 0:
+                self.logger.warn(f'No times matched in tracks DB for {pdtime}')
+                dsout[f'{self.var}_MCS'][i].values[:] = None
+                dsout[f'{self.var}_conv'][i].values[:] = None
+                dsout[f'{self.var}_env'][i].values[:] = None
+                continue
+            # Each cloudnumber can be used to link to the corresponding
+            # cloud in the pixel data.
             cns = ts.dstracks.cloudnumber.values[tmask]
+            # Nicer to have sorted values.
             cns.sort()
-
-            # Load the e5 data and interp in time to pixel time.
-            e5time1 = time - dt.timedelta(minutes=30)
-            e5time2 = time + dt.timedelta(minutes=30)
-            e5cape = (xr.open_mfdataset([e5inputs[t] for t in [e5time1, e5time2]])[self.var]
-                      .mean(dim='time').sel(latitude=slice(60, -60)).load())
 
             # Load the pixel data.
             dspixel = xr.open_dataset(pixel_inputs[time])
             pixel_precip = dspixel.precipitation.isel(time=0).load()
 
-            # Reload the regridder.
+            # Load the e5 data and interp in time to pixel time.
+            e5time1 = time - dt.timedelta(minutes=30)
+            e5time2 = time + dt.timedelta(minutes=30)
+            e5data = (xr.open_mfdataset([e5inputs[t] for t in [e5time1, e5time2]])[self.var]
+                      .mean(dim='time').sel(latitude=slice(60, -60)).load())
+
             if regridder is None:
-                regridder = xe.Regridder(pixel_precip, e5cape, 'bilinear', periodic=True,
+                # Reload the regridder.
+                regridder = xe.Regridder(pixel_precip, e5data, 'bilinear', periodic=True,
                                          reuse_weights=True, weights=self.inputs['regridder'])
 
             if True:
@@ -232,8 +270,27 @@ class RegionalERA5Hist(TaskRule):
                     (~mcs_mask & ~e5conv_mask).sum()) == mcs_mask.size
 
             # Calc hists.
-            bins = np.arange(0, 5000, 10)
-            hist = {}
-            hist['MCS'] = np.histogram(e5cape.values[mcs_mask], bins=bins, density=True);
-            hist['conv'] = np.histogram(e5cape.values[~mcs_mask & e5conv_mask], bins=bins, density=True);
-            hist['env'] = np.histogram(e5cape.values[~mcs_mask & ~e5conv_mask], bins=bins, density=True);
+            hist = partial(np.histogram, bins=bins)
+            dsout[f'{self.var}_MCS'][i] = hist(e5data.values[mcs_mask])[0]
+            dsout[f'{self.var}_conv'][i] = hist(e5data.values[~mcs_mask & e5conv_mask])[0]
+            dsout[f'{self.var}_env'][i] = hist(e5data.values[~mcs_mask & ~e5conv_mask])[0]
+        dsout.to_netcdf(self.outputs['hist'])
+
+
+class CombineConditionalERA5Hist(TaskRule):
+    @staticmethod
+    def rule_inputs(year, var):
+        inputs = {f'hist_{m}': fmtp(ConditionalERA5Hist.rule_outputs['hist'], year=year, month=m, var=var)
+                  for m in months}
+        return inputs
+
+    rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
+                             '{year}' /
+                             'yearly_{var}_hist_{year}.nc')}
+
+    var_matrix = {'year': years, 'var': ['cape']}
+
+    def rule_run(self):
+        ds = xr.open_mfdataset(self.inputs.values())
+        ds.to_netcdf(self.outputs['hist'])
+

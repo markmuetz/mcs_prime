@@ -92,7 +92,7 @@ class CombineERA5Hist(TaskRule):
         ds.to_netcdf(self.outputs['hist'])
 
 
-class GenConditionalRegridder(TaskRule):
+class GenRegridder(TaskRule):
     rule_inputs = {'cape': (PATHS['era5dir'] / 'data/oper/an_sfc/'
                             '2020/01/01'
                             '/ecmwf-era5_oper_an_sfc_'
@@ -160,7 +160,7 @@ class ConditionalERA5Hist(TaskRule):
 
         inputs['tracks'] = (PATHS['statsdir'] /
                             f'mcs_tracks_final_extc_{start_date}.0000_{year + 1}0101.0000.nc')
-        inputs['regridder'] = GenConditionalRegridder.rule_outputs['regridder']
+        inputs['regridder'] = GenRegridder.rule_outputs['regridder']
         return inputs
 
     rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /

@@ -36,12 +36,15 @@ class ERA5Hist(TaskRule):
                              '{year}' /
                              'monthly_{var}_hist_{year}_{month:02d}.nc')}
 
-    var_matrix = {'year': years, 'month': months, 'var': ['cape']}
+    var_matrix = {'year': years, 'month': months, 'var': ['cape', 'tcwv']}
 
     def rule_run(self):
         month_start_day = dt.datetime(self.year, self.month, 1).timetuple().tm_yday
         month_files = list(self.inputs.values())
-        bins = np.linspace(0, 5000, 501)
+        if self.var == 'cape':
+            bins = np.linspace(0, 5000, 501)
+        elif self.var == 'tcwv':
+            bins = np.linspace(0, 100, 101)
         mids = (bins[1:] + bins[:-1]) / 2
 
         hists = np.zeros((len(month_files) // 24, bins.size - 1))
@@ -85,7 +88,7 @@ class CombineERA5Hist(TaskRule):
                              '{year}' /
                              'yearly_{var}_hist_{year}.nc')}
 
-    var_matrix = {'year': years, 'var': ['cape']}
+    var_matrix = {'year': years, 'var': ['cape', 'tcwv']}
 
     def rule_run(self):
         ds = xr.open_mfdataset(self.inputs.values())
@@ -167,7 +170,7 @@ class ConditionalERA5Hist(TaskRule):
                              '{year}' /
                              'monthly_{var}_hist_{year}_{month:02d}.nc')}
 
-    var_matrix = {'year': years, 'month': months, 'var': ['cape']}
+    var_matrix = {'year': years, 'month': months, 'var': ['cape', 'tcwv']}
 
     def rule_run(self):
         tracks = McsTracks.open(self.inputs['tracks'], None)
@@ -181,7 +184,10 @@ class ConditionalERA5Hist(TaskRule):
                         for t in pixel_times}
 
         month_start_day = dt.datetime(self.year, self.month, 1).timetuple().tm_yday
-        bins = np.linspace(0, 5000, 501)
+        if self.var == 'cape':
+            bins = np.linspace(0, 5000, 501)
+        elif self.var == 'tcwv':
+            bins = np.linspace(0, 100, 101)
         mids = (bins[1:] + bins[:-1]) / 2
 
         hists = np.zeros((len(pixel_times), mids.size))
@@ -288,7 +294,7 @@ class CombineConditionalERA5Hist(TaskRule):
                              '{year}' /
                              'yearly_{var}_hist_{year}.nc')}
 
-    var_matrix = {'year': years, 'var': ['cape']}
+    var_matrix = {'year': years, 'var': ['cape', 'tcwv']}
 
     def rule_run(self):
         ds = xr.open_mfdataset(self.inputs.values())

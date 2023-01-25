@@ -13,7 +13,7 @@ from remake.util import format_path as fmtp
 
 from mcs_prime import PATHS, McsTracks, PixelData
 
-slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 16000}
+slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 32000}
 era5_histograms = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
 years = [2020]
@@ -24,6 +24,7 @@ date_keys = [(y, m, d) for y, m, d in zip(dates.year, dates.month, dates.day)]
 
 
 class ERA5Hist(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year, month, var):
         days_in_month = calendar.monthrange(year, month)[1]
@@ -81,6 +82,7 @@ class ERA5Hist(TaskRule):
 
 
 class CombineERA5Hist(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year, var):
         inputs = {f'hist_{m}': fmtp(ERA5Hist.rule_outputs['hist'], year=year, month=m, var=var)
@@ -468,8 +470,8 @@ class CombineConditionalERA5ShearHist(TaskRule):
         ds.to_netcdf(self.outputs['hist'])
 
 
-class GenERA5Masks(TaskRule):
-    """Generate ERA5 masks by regridding native MCS dataset masks/cloudnumbers
+class GenERA5PixelData(TaskRule):
+    """Generate ERA5 pixel data by regridding native MCS dataset masks/cloudnumbers
 
     The MCS dataset pixel-level data has a field cloudnumber, which maps onto the
     corresponding cloudnumber field in the tracks data. Here, for each time (on
@@ -481,10 +483,10 @@ class GenERA5Masks(TaskRule):
     * load pixel to ERA5 regridder.
     * for each hour for which there is data, do regridding.
     * load pixel-level cloudnumber/Tb.
-    * for each MCS cloudnumber, regrid the mask for that cloudnumber, keeping all values
+    * for each cloudnumber, regrid the mask for that cloudnumber, keeping all values
       greater than 0.5.
     * combine into one integer field.
-    * regrid a "convection" indicator, where Tb < 225 (to match Feng et al. 2021 core definition).
+    * regrid a "core" indicator, where Tb < 225 (to match Feng et al. 2021 core definition).
     * save compressed int16 results.
     """
     @staticmethod
@@ -510,20 +512,16 @@ class GenERA5Masks(TaskRule):
                         if p.exists()}
         inputs = {**e5inputs, **pixel_inputs}
 
-        inputs['tracks'] = (PATHS['statsdir'] /
-                            f'mcs_tracks_final_extc_{start_date}.0000_{year + 1}0101.0000.nc')
         inputs['regridder'] = GenRegridder.rule_outputs['regridder']
         return inputs
 
-    rule_outputs = {'e5mask': (PATHS['outdir'] / 'era5_masks' /
-                               '{year}' / '{month:02d}' / '{day:02d}' /
-                               'era5_MCS_conv_mask_{year}{month:02d}{day:02d}.nc')}
+    rule_outputs = {'e5pixel': (PATHS['outdir'] / 'era5_pixel' /
+                                '{year}' / '{month:02d}' / '{day:02d}' /
+                                'era5_MCS_pixel_{year}{month:02d}{day:02d}.nc')}
 
     var_matrix = {('year', 'month', 'day'): date_keys}
 
     def rule_run(self):
-        tracks = McsTracks.open(self.inputs['tracks'], None)
-
         e5cape = xr.open_dataarray(self.inputs['cape']).sel(latitude=slice(60, -60))
         # Note, this is a subset of times based on which times exist.
         hours = [h for h in range(24) if f'pixel_{h}' in self.inputs]
@@ -539,30 +537,12 @@ class GenERA5Masks(TaskRule):
                 longitude=e5cape.longitude,
             ),
             data_vars={
-                'MCS_cloudnumber': (('time', 'latitude', 'longitude'), data.copy()),
-                'conv_mask': (('time', 'latitude', 'longitude'), data.copy()),
+                'cloudnumber': (('time', 'latitude', 'longitude'), data.copy()),
+                'tb': (('time', 'latitude', 'longitude'), data.copy()),
             }
         )
         regridder = None
         for i, h in enumerate(hours):
-            time = dt.datetime(self.year, self.month, self.day, h, 30)
-            print(time)
-            # Get cloudnumbers (cns) for tracks at given time.
-            pdtime = pd.Timestamp(time)
-            ts = tracks.tracks_at_time(time)
-            # tmask is a 2d mask that spans multiple tracks, getting
-            # the cloudnumbers at *one time only*, that can be
-            # used to get cloudnumbers.
-            tmask = (ts.dstracks.base_time == pdtime).values
-            if tmask.sum() == 0:
-                self.logger.warn(f'No times matched in tracks DB for {pdtime}')
-                continue
-            # Each cloudnumber can be used to link to the corresponding
-            # cloud in the pixel data.
-            cns = ts.dstracks.cloudnumber.values[tmask]
-            # Nicer to have sorted values.
-            cns.sort()
-
             # Load the pixel data.
             dspixel = xr.open_dataset(pixel_inputs[h])
             pixel_precip = dspixel.precipitation.isel(time=0).load()
@@ -574,6 +554,10 @@ class GenERA5Masks(TaskRule):
 
             # Perform the regrid for each cloudnumber.
             mask_regridded = []
+            max_cn = int(dspixel.cloudnumber.values[~np.isnan(dspixel.cloudnumber.values)].max())
+            cns = range(1, max_cn + 1)
+            # The idea here is to stack masks together, one for earch cn, then sum along
+            # the stacked dim to get a cn field on ERA5 grid.
             for cn in cns:
                 print(cn)
                 mask_regridded.append(regridder((dspixel.cloudnumber == cn).astype(float)))
@@ -583,30 +567,22 @@ class GenERA5Masks(TaskRule):
             # and the `* da_mask_regridded.cn` will multiply each 1/0 bool mask by its
             # corresponding # cn, turning 1s into its cloudnumber. Summing along the cn index
             # turns this into a (len(lat), len(lon)) field.
+            # Note, a regridded value belongs to a cn if it is over 0.5, so that masks should not
+            # overlap.
             e5cn = ((da_mask_regridded > 0.5).astype(int) * da_mask_regridded.cn).sum(dim='cn')
             mcs_mask = e5cn.values[0] > 0.5
 
             e5tb = regridder(dspixel.tb)
-            # N.B. Feng et al. 2021 uses Tb < 225 to define cold cloud cores.
-            e5conv_mask = e5tb[0] < 225
 
-            # The three masks used are mutually exclusive:
-            # mcs_mask -- all values within MCS CCS.
-            # ~mcs_mask & e5conv_mask -- all values not in MCS but in convective regions.
-            # ~mcs_mask & ~e5conv_mask -- env.
-            assert (mcs_mask.sum() +
-                    (~mcs_mask & e5conv_mask).sum() +
-                    (~mcs_mask & ~e5conv_mask).sum()) == mcs_mask.size
-
-            dsout.MCS_cloudnumber[i] = e5cn[0]
-            dsout.conv_mask[i] = e5conv_mask
+            dsout.cloudnumber[i] = e5cn[0]
+            dsout.tb[i] = e5tb[0]
             # N.B. I have checked that the max cloudnumber (1453) in the tracks dataset is < 2**16
             # assert cns.max() < 2**16 - 1
 
         # Save as compressed int16 field for lots of compression!
         comp = dict(dtype='int16', zlib=True, complevel=4)
         encoding = {var: comp for var in dsout.data_vars}
-        dsout.to_netcdf(self.outputs['e5mask'], encoding=encoding)
+        dsout.to_netcdf(self.outputs['e5pixel'], encoding=encoding)
 
 
 class ConditionalERA5Hist(TaskRule):
@@ -623,12 +599,18 @@ class ConditionalERA5Hist(TaskRule):
                                    f'{t.hour:02d}00.{var}.nc'))
                     for t in e5times}
 
-        e5mask_inputs = {'e5mask': fmtp(GenERA5Masks.rule_outputs['e5mask'],
-                                        year=year,
-                                        month=month,
-                                        day=day)}
+        e5pixel_inputs = {'e5pixel': fmtp(GenERA5PixelData.rule_outputs['e5pixel'],
+                                          year=year,
+                                          month=month,
+                                          day=day)}
+        if year == 2000:
+            start_date = '20000601'
+        else:
+            start_date = f'{year}0101'
+        e5pixel_inputs['tracks'] = (PATHS['statsdir'] /
+                                    f'mcs_tracks_final_extc_{start_date}.0000_{year + 1}0101.0000.nc')
 
-        inputs = {**e5inputs, **e5mask_inputs}
+        inputs = {**e5inputs, **e5pixel_inputs}
         return inputs
 
     rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
@@ -638,6 +620,8 @@ class ConditionalERA5Hist(TaskRule):
     var_matrix = {('year', 'month', 'day'): date_keys, 'var': ['cape', 'tcwv']}
 
     def rule_run(self):
+        tracks = McsTracks.open(self.inputs['tracks'], None)
+
         start = dt.datetime(self.year, self.month, self.day)
         # Note there are 25 of these so I can get ERA5 data on the hour either side
         # of MCS dataset data (on the half hour).
@@ -646,7 +630,7 @@ class ConditionalERA5Hist(TaskRule):
         e5inputs = {t: self.inputs[f'era5_{t}']
                     for t in e5times}
 
-        e5mask = xr.load_dataset(self.inputs['e5mask'])
+        e5pixel = xr.load_dataset(self.inputs['e5pixel'])
 
         if self.var == 'cape':
             bins = np.linspace(0, 5000, 501)
@@ -654,27 +638,49 @@ class ConditionalERA5Hist(TaskRule):
             bins = np.linspace(0, 100, 101)
         mids = (bins[1:] + bins[:-1]) / 2
 
-        hists = np.zeros((len(e5mask.time), mids.size))
+        hists = np.zeros((len(e5pixel.time), mids.size))
 
         # Make a dataset to hold all the histogram data.
         dsout = xr.Dataset(
             coords=dict(
-                time=e5mask.time,
+                time=e5pixel.time,
                 hist_mid=mids,
                 bins=bins,
             ),
             data_vars={
-                f'{self.var}_MCS': (('time', 'hist_mid'), hists.copy()),
-                f'{self.var}_conv': (('time', 'hist_mid'), hists.copy()),
+                f'{self.var}_MCS_shield': (('time', 'hist_mid'), hists.copy()),
+                f'{self.var}_MCS_core': (('time', 'hist_mid'), hists.copy()),
+                f'{self.var}_cloud_shield': (('time', 'hist_mid'), hists.copy()),
+                f'{self.var}_cloud_core': (('time', 'hist_mid'), hists.copy()),
                 f'{self.var}_env': (('time', 'hist_mid'), hists.copy()),
             }
         )
 
         # Looping over subset of times.
-        for i, time in enumerate(e5mask.time.values):
+        for i, time in enumerate(e5pixel.time.values):
             pdtime = pd.Timestamp(time)
             time = pdtime.to_pydatetime()
             print(time)
+
+            # Get cloudnumbers (cns) for tracks at given time.
+            ts = tracks.tracks_at_time(time)
+            # tmask is a 2d mask that spans multiple tracks, getting
+            # the cloudnumbers at *one time only*, that can be
+            # used to get cloudnumbers.
+            tmask = (ts.dstracks.base_time == pdtime).values
+            if tmask.sum() == 0:
+                self.logger.warn(f'No times matched in tracks DB for {pdtime}')
+                dsout[f'{self.var}_MCS_shield'][i].values[:] = None
+                dsout[f'{self.var}_MCS_core'][i].values[:] = None
+                dsout[f'{self.var}_cloud_shield'][i].values[:] = None
+                dsout[f'{self.var}_cloud_core'][i].values[:] = None
+                dsout[f'{self.var}_env'][i].values[:] = None
+                continue
+            # Each cloudnumber can be used to link to the corresponding
+            # cloud in the pixel data.
+            cns = ts.dstracks.cloudnumber.values[tmask]
+            # Nicer to have sorted values.
+            cns.sort()
 
             # Load the e5 data and interp in time to pixel time.
             e5time1 = time - dt.timedelta(minutes=30)
@@ -682,20 +688,25 @@ class ConditionalERA5Hist(TaskRule):
             e5data = (xr.open_mfdataset([e5inputs[t] for t in [e5time1, e5time2]])[self.var]
                       .mean(dim='time').sel(latitude=slice(60, -60)).load())
 
-            mcs_mask = e5mask.MCS_cloudnumber[i].values >= 1
-            # Converting this to a bool array (==1) makes a HUUUGGGEEE difference in terms
-            # of time taken to compute histograms. Not sure why.
-            conv_mask = e5mask.conv_mask[i].values == 1
+            core_mask = e5pixel.tb[i].values < 225
+            mcs_shield_mask = e5pixel.cloudnumber[i].isin(cns).values
+            cloud_shield_mask = e5pixel.cloudnumber[i].values > 0 & ~mcs_shield_mask
+            mcs_core_mask = mcs_shield_mask & core_mask
+            cloud_core_mask = cloud_shield_mask & core_mask
+            env_mask = ~mcs_shield_mask & ~cloud_shield_mask
 
             # Calc hists.
             hist = partial(np.histogram, bins=bins)
-            dsout[f'{self.var}_MCS'][i] = hist(e5data.values[mcs_mask])[0]
-            dsout[f'{self.var}_conv'][i] = hist(e5data.values[~mcs_mask & conv_mask])[0]
-            dsout[f'{self.var}_env'][i] = hist(e5data.values[~mcs_mask & ~conv_mask])[0]
+            dsout[f'{self.var}_MCS_shield'][i] = hist(e5data.values[mcs_shield_mask])[0]
+            dsout[f'{self.var}_MCS_core'][i] = hist(e5data.values[mcs_core_mask])[0]
+            dsout[f'{self.var}_cloud_shield'][i] = hist(e5data.values[cloud_shield_mask])[0]
+            dsout[f'{self.var}_cloud_core'][i] = hist(e5data.values[cloud_core_mask])[0]
+            dsout[f'{self.var}_env'][i] = hist(e5data.values[env_mask])[0]
         dsout.to_netcdf(self.outputs['hist'])
 
 
 class CombineConditionalERA5Hist(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year, var):
         dates = pd.date_range(f'{year}-01-01', f'{year}-12-31')

@@ -256,6 +256,7 @@ def production_step(idx, step, values, fout):
     codes_set(values['sample'], 'step', int(step))
 
     for lev in sorted(values['levelist'], reverse=True):
+        print(lev)
         try:
             z_h, z_f = compute_z_level(idx, lev, values, z_h)
             # store the result (z_f) in a field and add to the output

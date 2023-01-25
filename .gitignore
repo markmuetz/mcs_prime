@@ -23,3 +23,6 @@ mcs_prime.egg-info
 data
 figs
 .results_cache
+
+# These files sometimes end up on JASMIN:
+.nfs*

@@ -486,7 +486,7 @@ class GenERA5PixelData(TaskRule):
     * for each cloudnumber, regrid the mask for that cloudnumber, keeping all values
       greater than 0.5.
     * combine into one integer field.
-    * regrid a "core" indicator, where Tb < 225 (to match Feng et al. 2021 core definition).
+    * also regrid Tb field.
     * save compressed int16 results.
     """
     @staticmethod

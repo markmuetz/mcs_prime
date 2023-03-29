@@ -587,7 +587,7 @@ class GenERA5PixelData(TaskRule):
 
 class ConditionalERA5Hist(TaskRule):
     @staticmethod
-    def rule_inputs(year, month, day, var):
+    def rule_inputs(year, month, day, var, region):
         start = dt.datetime(year, month, day)
         # Note there are 25 of these so I can get ERA5 data on the hour either side
         # of MCS dataset data (on the half hour).
@@ -610,17 +610,36 @@ class ConditionalERA5Hist(TaskRule):
         e5pixel_inputs['tracks'] = (PATHS['statsdir'] /
                                     f'mcs_tracks_final_extc_{start_date}.0000_{year + 1}0101.0000.nc')
 
-        inputs = {**e5inputs, **e5pixel_inputs}
+        inputs = {
+            **e5inputs,
+            **e5pixel_inputs,
+            'ERA5_land_sea_mask': PATHS['era5dir'] / 'data/invariants/ecmwf-era5_oper_an_sfc_200001010000.lsm.inv.nc'}
         return inputs
 
     rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
                              '{year}' /
-                             'daily_{var}_hist_{year}_{month:02d}_{day:02d}.nc')}
+                             'daily_{var}_hist_{region}_{year}_{month:02d}_{day:02d}.nc')}
 
-    var_matrix = {('year', 'month', 'day'): date_keys, 'var': ['cape', 'tcwv']}
+    var_matrix = {
+        ('year', 'month', 'day'): date_keys,
+        'var': ['cape', 'tcwv'],
+        'region': ['all', 'land', 'ocean'],
+    }
 
     def rule_run(self):
         tracks = McsTracks.open(self.inputs['tracks'], None)
+        da_lsmask = xr.open_dataarray(self.inputs['ERA5_land_sea_mask'])
+        if self.region == 'all':
+            # All ones.
+            lsmask = da_lsmask[0].sel(latitude=slice(60, -60)).values >= 0
+        elif self.region == 'land':
+            # LSM has land == 1.
+            lsmask = da_lsmask[0].sel(latitude=slice(60, -60)).values > 0.5
+        elif self.region == 'ocean':
+            # LSM has ocean == 0.
+            lsmask = da_lsmask[0].sel(latitude=slice(60, -60)).values <= 0.5
+        else:
+            raise ValueError(f'Unknown region: {self.region}')
 
         start = dt.datetime(self.year, self.month, self.day)
         # Note there are 25 of these so I can get ERA5 data on the hour either side
@@ -688,12 +707,12 @@ class ConditionalERA5Hist(TaskRule):
             e5data = (xr.open_mfdataset([e5inputs[t] for t in [e5time1, e5time2]])[self.var]
                       .mean(dim='time').sel(latitude=slice(60, -60)).load())
 
-            core_mask = e5pixel.tb[i].values < 225
-            mcs_shield_mask = e5pixel.cloudnumber[i].isin(cns).values
-            cloud_shield_mask = e5pixel.cloudnumber[i].values > 0 & ~mcs_shield_mask
+            core_mask = (e5pixel.tb[i].values < 225) & lsmask
+            mcs_shield_mask = e5pixel.cloudnumber[i].isin(cns).values & lsmask
+            cloud_shield_mask = (e5pixel.cloudnumber[i].values > 0 & ~mcs_shield_mask) & lsmask
             mcs_core_mask = mcs_shield_mask & core_mask
             cloud_core_mask = cloud_shield_mask & core_mask
-            env_mask = ~mcs_shield_mask & ~cloud_shield_mask
+            env_mask = (~mcs_shield_mask & ~cloud_shield_mask) & lsmask
 
             # Calc hists.
             hist = partial(np.histogram, bins=bins)
@@ -706,20 +725,19 @@ class ConditionalERA5Hist(TaskRule):
 
 
 class CombineConditionalERA5Hist(TaskRule):
-    enabled = False
     @staticmethod
-    def rule_inputs(year, var):
+    def rule_inputs(year, var, region):
         dates = pd.date_range(f'{year}-01-01', f'{year}-12-31')
         inputs = {f'hist_{d}': fmtp(ConditionalERA5Hist.rule_outputs['hist'],
-                                    year=d.year, month=d.month, day=d.day, var=var)
+                                    year=d.year, month=d.month, day=d.day, var=var, region=region)
                   for d in dates}
         return inputs
 
     rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
                              '{year}' /
-                             'yearly_{var}_hist_{year}.nc')}
+                             'yearly_{var}_hist_{region}_{year}.nc')}
 
-    var_matrix = {'year': years, 'var': ['cape', 'tcwv']}
+    var_matrix = {'year': years, 'var': ['cape', 'tcwv'], 'region': ['all', 'land', 'ocean']}
 
     def rule_run(self):
         ds = xr.open_mfdataset(self.inputs.values())

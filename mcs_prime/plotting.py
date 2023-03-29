@@ -25,9 +25,7 @@ def ticks_from_min_max_lon_lat(minlon, maxlon, minlat, maxlat, dlon=5, dlat=5):
     tmaxlon = maxlon - (maxlon % dlon)
     tminlat = (minlat + dlat) - (minlat % dlat)
     tmaxlat = maxlat - (maxlat % dlat)
-    return np.arange(tminlon, tmaxlon + dlon, dlon), np.arange(
-        tminlat, tmaxlat + dlat, dlat
-    )
+    return np.arange(tminlon, tmaxlon + dlon, dlon), np.arange(tminlat, tmaxlat + dlat, dlat)
 
 
 def plot_diurnal_cycle(tracks, dhours=6, mode="mean"):
@@ -86,34 +84,19 @@ def plot_diurnal_cycle(tracks, dhours=6, mode="mean"):
             diff_hists[i] = hist / mean_hist
 
     if mode == "anomaly":
-        diff_hist_min = min(
-            [np.nanmin(diff_hists[i]) for i, ax in enumerate(axes.flatten())]
-        )
-        diff_hist_max = max(
-            [np.nanmax(diff_hists[i]) for i, ax in enumerate(axes.flatten())]
-        )
+        diff_hist_min = min([np.nanmin(diff_hists[i]) for i, ax in enumerate(axes.flatten())])
+        diff_hist_max = max([np.nanmax(diff_hists[i]) for i, ax in enumerate(axes.flatten())])
 
-        abs_max = round_away_from_zero_to_sigfig(
-            max(abs(diff_hist_min), abs(diff_hist_max)), 2
-        )
+        abs_max = round_away_from_zero_to_sigfig(max(abs(diff_hist_min), abs(diff_hist_max)), 2)
 
-        levels = (
-            np.array([-1, -5e-1, -2e-1, -1e-1, -5e-2, 5e-2, 1e-1, 2e-1, 5e-1, 1])
-            * abs_max
-        )
+        levels = np.array([-1, -5e-1, -2e-1, -1e-1, -5e-2, 5e-2, 1e-1, 2e-1, 5e-1, 1]) * abs_max
         cmap = plt.get_cmap("RdBu_r").copy()
     elif mode == "anomaly_frac":
-        levels = np.array(
-            [0, 1 / 2, 2 / 3, 4 / 5, 0.9, 0.95, 1.05, 1.1, 5 / 4, 3 / 2, 2, 10]
-        )
+        levels = np.array([0, 1 / 2, 2 / 3, 4 / 5, 0.9, 0.95, 1.05, 1.1, 5 / 4, 3 / 2, 2, 10])
         cmap = plt.get_cmap("RdBu_r").copy()
     else:
         cmap = plt.get_cmap("Spectral_r").copy()
-        levels = (
-            np.array([0, 2, 3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 90, 100])
-            / 100
-            * hist.max()
-        )
+        levels = np.array([0, 2, 3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 90, 100]) / 100 * hist.max()
     norm = colors.BoundaryNorm(boundaries=levels, ncolors=256)
 
     for i, ax in enumerate(axes.flatten()):
@@ -193,12 +176,8 @@ def animate_track(
         track.plot(times=[time], ax=ax1, use_status_for_marker=True)
         track.plot(times=[time], ax=ax2, use_status_for_marker=True)
 
-        _anim_individual_frame(
-            ax1, frames, precip[i], cn[i], tb[i], frame_norm, frame_precip_levels
-        )
-        _anim_swath(
-            ax2, frames, precip_swath, cn_swath, swath_norm, swath_precip_levels
-        )
+        _anim_individual_frame(ax1, frames, precip[i], cn[i], tb[i], frame_norm, frame_precip_levels)
+        _anim_swath(ax2, frames, precip_swath, cn_swath, swath_norm, swath_precip_levels)
         _anim_timeseries(track, ax3, i)
 
         def fmt_lat_ticklabels(ticks):
@@ -243,10 +222,7 @@ def animate_track(
         ax1.legend(handles=legend_elements)
 
         if savefigs:
-            figpath = Path(
-                figdir
-                / f"anim_track/track_{track.track_id}/track_{track.track_id}_{i:03d}.png"
-            )
+            figpath = Path(figdir / f"anim_track/track_{track.track_id}/track_{track.track_id}_{i:03d}.png")
             figpath.parent.mkdir(parents=True, exist_ok=True)
             plt.savefig(figpath)
             figpaths.append(figpath)
@@ -254,9 +230,7 @@ def animate_track(
             plt.pause(1)
             print(status, status_dict[status])
             if user_input != "c":
-                user_input = input(
-                    "c for continue, q to quit, p for prev, <enter> for step: "
-                )
+                user_input = input("c for continue, q to quit, p for prev, <enter> for step: ")
                 if user_input == "q":
                     raise Exception("quit")
                 elif user_input == "p":
@@ -271,9 +245,7 @@ def animate_track(
     return figpaths
 
 
-def _anim_individual_frame(
-    ax, frames, precip_frame, cn_frame, tb_frame, frame_norm, frame_precip_levels
-):
+def _anim_individual_frame(ax, frames, precip_frame, cn_frame, tb_frame, frame_norm, frame_precip_levels):
     im1 = ax.contourf(
         frames.dspixel.lon,
         frames.dspixel.lat,
@@ -334,3 +306,49 @@ def _anim_timeseries(track, ax, i):
     ax.axvline(x=i)
     ax.legend(loc="upper right")
     ax.set_xlabel("time since start (hr)")
+
+
+def plot_geog_histogram(
+    tracks,
+    xmin=-180,
+    xmax=180,
+    ymin=-60,
+    ymax=60,
+    dx=4,
+    dy=4,
+    cmap='Spectral_r',
+    levels=None,
+    figsize=(20, 6),
+):
+    dstracks = tracks.dstracks
+    dstracks.meanlon.load()
+    dstracks.meanlat.load()
+
+    nan_mask = ~np.isnan(dstracks.meanlon.values)
+    meanlon = dstracks.meanlon.values[nan_mask]
+    meanlat = dstracks.meanlat.values[nan_mask]
+
+    bx = np.arange(xmin, xmax + dx, dx)
+    by = np.arange(ymin, ymax + dy, dy)
+    hist, _, _ = np.histogram2d(meanlon, meanlat, bins=(bx, by))
+    if levels is None:
+        levels = np.array([0, 2, 3, 5, 8, 10, 15, 20, 25, 30, 35, 40, 50, 60, 80, 90, 100]) / 100 * hist.max()
+
+    cmap = plt.get_cmap(cmap).copy()
+    norm = colors.BoundaryNorm(boundaries=levels, ncolors=256)
+
+    # Set up an ax using PlateCarree (lat/lon) cartopy projection.
+    fig, ax = plt.subplots(
+        1,
+        1,
+        subplot_kw=dict(projection=cartopy.crs.PlateCarree()),
+    )
+
+    fig.set_size_inches(figsize)
+    extent = (xmin, xmax, ymin, ymax)
+    # Display the data. Note have to transpose hist to get in correct format.
+    im = ax.imshow(hist.T, origin='lower', extent=extent, cmap=cmap, norm=norm)
+    # Add nice coastlines to cartopy ax.
+    ax.coastlines()
+
+    plt.colorbar(im, ax=ax, label='MCS count')

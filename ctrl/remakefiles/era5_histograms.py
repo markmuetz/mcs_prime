@@ -707,15 +707,27 @@ class ConditionalERA5Hist(TaskRule):
             e5data = (xr.open_mfdataset([e5inputs[t] for t in [e5time1, e5time2]])[self.var]
                       .mean(dim='time').sel(latitude=slice(60, -60)).load())
 
+            # Convective core Tb < 225K.
             core_mask = (e5pixel.tb[i].values < 225) & lsmask
-            mcs_shield_mask = e5pixel.cloudnumber[i].isin(cns).values & lsmask
-            cloud_shield_mask = (e5pixel.cloudnumber[i].values > 0 & ~mcs_shield_mask) & lsmask
-            mcs_core_mask = mcs_shield_mask & core_mask
-            cloud_core_mask = cloud_shield_mask & core_mask
-            env_mask = (~mcs_shield_mask & ~cloud_shield_mask) & lsmask
+            # Tracked MCS shield (N.B. close to Tb < 241K but expanded by precip regions).
+            # INCLUDES CONV CORE.
+            mcs_core_shield_mask = e5pixel.cloudnumber[i].isin(cns).values & lsmask
+            # Non-MCS clouds (Tb < 241K). INCLUDES CONV CORE.
+            cloud_core_shield_mask = (e5pixel.cloudnumber[i].values > 0 & ~mcs_core_shield_mask) & lsmask
+            # MCS conv core only.
+            mcs_core_mask = mcs_core_shield_mask & core_mask
+            # Cloud conv core only.
+            cloud_core_mask = cloud_core_shield_mask & core_mask
+            # Env is everything outside of these two regions.
+            env_mask = ~mcs_core_shield_mask & ~cloud_core_shield_mask
+
+            # Remove conv core from shileds.
+            mcs_shield_mask = mcs_core_shield_mask & ~mcs_core_mask
+            cloud_shield_mask = cloud_core_shield_mask & ~cloud_core_mask
 
             # Calc hists.
             hist = partial(np.histogram, bins=bins)
+            # These 5 regions are mutually exclusive.
             dsout[f'{self.var}_MCS_shield'][i] = hist(e5data.values[mcs_shield_mask])[0]
             dsout[f'{self.var}_MCS_core'][i] = hist(e5data.values[mcs_core_mask])[0]
             dsout[f'{self.var}_cloud_shield'][i] = hist(e5data.values[cloud_shield_mask])[0]

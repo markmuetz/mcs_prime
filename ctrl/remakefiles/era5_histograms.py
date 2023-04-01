@@ -14,15 +14,16 @@ from remake.util import format_path as fmtp
 
 from mcs_prime import PATHS, McsTracks, PixelData
 
-slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 32000}
+slurm_config = {'queue': 'short-serial', 'mem': 32000, 'max_runtime': '10:00:00'}
+# slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 32000}
 era5_histograms = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
-years = [2020]
+years = list(range(2000, 2021))
 months = range(1, 13)
 
 # For testing - 5 days.
 # DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
-DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-12-31')
+DATES = pd.date_range(f'{years[0]}-01-01', f'{years[-1]}-12-31')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
 
 
@@ -758,7 +759,7 @@ class CombineConditionalERA5Hist(TaskRule):
     def rule_inputs(year):
         inputs = {f'hist_{d}': fmtp(ConditionalERA5Hist.rule_outputs['hist'],
                                     year=d.year, month=d.month, day=d.day)
-                  for d in DATES}
+                  for d in DATES[DATES.year == year]}
         return inputs
 
     rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /

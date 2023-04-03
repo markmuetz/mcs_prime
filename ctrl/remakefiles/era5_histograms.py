@@ -13,6 +13,7 @@ from remake import Remake, TaskRule
 from remake.util import format_path as fmtp
 
 from mcs_prime import PATHS, McsTracks, PixelData
+from mcs_prime.era5_calc import ERA5Calc
 
 # A couple of the jobs ran out of mem. A few of the GenERA5PixelData jobs
 # take longer than 4hr, plus the short-serial-4hr queue can only have
@@ -308,7 +309,7 @@ class GenERA5Shear(TaskRule):
     @staticmethod
     def rule_inputs(year, month, day):
         start = dt.datetime(year, month, day)
-        # Note there are 24 of these.
+        # Note there are 25 of these.
         e5times = pd.date_range(start, start + dt.timedelta(hours=24), freq='H')
         e5inputs = {f'era5_{t}_{var}': (PATHS['era5dir'] /
                                         f'data/oper/an_ml/{t.year}/{t.month:02d}/{t.day:02d}' /
@@ -332,7 +333,7 @@ class GenERA5Shear(TaskRule):
             101,  # 610hPa/4074m
         ]
         start = dt.datetime(self.year, self.month, self.day)
-        e5times = pd.date_range(start, start + dt.timedelta(hours=23), freq='H')
+        e5times = pd.date_range(start, start + dt.timedelta(hours=24), freq='H')
         e5inputs = {(t, v): self.inputs[f'era5_{t}_{v}']
                     for t in e5times
                     for v in ['u', 'v']}
@@ -366,24 +367,120 @@ class GenERA5Shear(TaskRule):
         dsout.to_netcdf(self.outputs['shear'])
 
 
-class OldCombineConditionalERA5ShearHist(TaskRule):
-    enabled = False
+def calc_mf_u(rho, q, u):
+    """Calculates the x-component of density-weighted moisture flux on a c-grid"""
+    def calc_mid(var):
+        return (var + np.roll(var, -1, axis=2)) / 2
+    return calc_mid(rho * q * u)
+
+
+def calc_mf_v(rho, q, v):
+    """Calculates the y-component of density-weighted moisture flux on a c-grid"""
+    def calc_mid(var):
+        s1 = (slice(None), slice(None, -1), slice(None))
+        s2 = (slice(None), slice(1, None), slice(None))
+        return (var[s1] + var[s2]) / 2
+    return calc_mid(rho * q * v)
+
+
+def calc_div_mf(rho, q, u, v, dx, dy):
+    """Calculates the divergence of the moisture flux
+
+    Switches back to original grid, but loses latitudinal extremes.
+    Keeps longitudinal extremes due to biperiodic domain.
+    """
+    mf_u = calc_mf_u(rho, q, u)
+    mf_v = calc_mf_v(rho, q, v)
+    dqu_dx = (mf_u - np.roll(mf_u, 1, axis=2)) / dx[None, :, None]
+    # Note, these indices are not the wrong way round!
+    # latitude decreases with increasing index, hence I want the opposite
+    # to what you would expect.
+    dqv_dy = (mf_v[:, :-1, :] - mf_v[:, 1:, :] ) / dy
+
+    return dqu_dx[:, 1:-1] + dqv_dy
+
+
+class GenERA5VIMoistureFluxDiv(TaskRule):
     @staticmethod
-    def rule_inputs(year):
-        inputs = {f'hist_{m}': fmtp(ConditionalERA5ShearHist.rule_outputs['hist'],
-                                    year=year, month=m)
-                  for m in months}
-        return inputs
+    def rule_inputs(year, month, day):
+        start = dt.datetime(year, month, day)
+        # Note there are 225 these.
+        e5times = pd.date_range(start, start + dt.timedelta(hours=24), freq='H')
+        e5inputs = {f'era5_{t}_{var}': (PATHS['era5dir'] /
+                                        f'data/oper/an_ml/{t.year}/{t.month:02d}/{t.day:02d}' /
+                                        (f'ecmwf-era5_oper_an_ml_{t.year}{t.month:02d}{t.day:02d}'
+                                         f'{t.hour:02d}00.{var}.nc'))
+                    for var in ['u', 'v', 't', 'q', 'lnsp']
+                    for t in e5times}
+        e5inputs['model_levels'] = PATHS['datadir'] / 'ERA5/ERA5_L137_model_levels_table.csv'
+        return e5inputs
 
-    rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
-                             '{year}' /
-                             'yearly_shear_hist_{year}.nc')}
+    rule_outputs = {'vi_moisture_flux_div': (PATHS['outdir'] / 'era5_processed' /
+                                             '{year}' /
+                                             'daily_moisture_flux_div_{year}_{month:02d}_{day:02d}.nc')}
+    var_matrix = {
+        ('year', 'month', 'day'): DATE_KEYS,
+    }
 
-    var_matrix = {'year': years}
+    depends_on = [ERA5Calc, calc_mf_u, calc_mf_v, calc_div_mf]
 
     def rule_run(self):
-        ds = xr.open_mfdataset(self.inputs.values())
-        ds.to_netcdf(self.outputs['hist'])
+        start = dt.datetime(self.year, self.month, self.day)
+        # Note there are 25 of these.
+        e5times = pd.date_range(start, start + dt.timedelta(hours=24), freq='H')
+
+        e5calc = ERA5Calc(self.inputs['model_levels'])
+
+        vi_div_mf = []
+        for i, time in enumerate(e5times):
+            # Running out of memory doing full 4D calc: break into 24x 3D calc.
+            print(time)
+            e5inputs = {(time, v): self.inputs[f'era5_{time}_{v}']
+                        for v in ['u', 'v', 't', 'q', 'lnsp']}
+            # Only load levels where appreciable q, to save memory.
+            # q -> 0 by approx. level 70. Go higher (level 60=~100hPa) to be safe.
+            with xr.open_mfdataset(e5inputs.values()) as ds:
+                e5data = ds.isel(time=0).sel(latitude=slice(60.25, -60.25), level=slice(60, 137)).load()
+            print(e5data)
+            u, v = e5data.u.values, e5data.v.values
+            q = e5data.q.values
+            T = e5data.t.values
+            lnsp = e5data.lnsp.values
+
+            nlev = 137 - 60 + 1
+            p = e5calc.calc_pressure(lnsp)[-nlev:]
+            Tv = e5calc.calc_Tv(T, q)
+            print(p.mean(axis=(1, 2)))
+            print('p', p.shape)
+            print('Tv', Tv.shape)
+            rho = e5calc.calc_rho(p, Tv)
+
+            # Calc dx/dy.
+            dx_deg = e5data.longitude.values[1] - e5data.longitude.values[0]
+            dy_deg = e5data.latitude.values[0] - e5data.latitude.values[1]  # N.B. want positive so swap indices.
+            Re = 6371e3  # Radius of Earth in m.
+
+            dy = dy_deg / 360 * 2 * np.pi * Re  # km
+            dx = np.cos(e5data.latitude.values * np.pi / 180) * dx_deg / 360 * 2 * np.pi * Re  # km
+
+            div_mf = calc_div_mf(rho, q, u, v, dx, dy)
+            # TODO: Should be pressure weighted I think.
+            vi_div_mf.append(div_mf.sum(axis=0))
+
+        dsout = xr.Dataset(
+            coords=dict(
+                time=e5times,
+                latitude=e5data.latitude[1:-1],
+                longitude=e5data.longitude,
+            ),
+            data_vars={
+                'vertically_integrated_moisture_flux_div': (('time', 'latitude', 'longitude'),
+                                                            np.array(vi_div_mf))
+            },
+        )
+        print(dsout)
+        dsout.to_netcdf(self.outputs['vi_moisture_flux_div'])
+
 
 
 class GenERA5PixelData(TaskRule):
@@ -526,7 +623,12 @@ class ConditionalERA5Hist(TaskRule):
         e5proc_inputs = {'era5p_shear': fmtp(GenERA5Shear.rule_outputs['shear'],
                                              year=year,
                                              month=month,
-                                             day=day)}
+                                             day=day),
+                         'era5p_vimfd': fmtp(GenERA5VIMoistureFluxDiv.rule_outputs['vi_moisture_flux_div'],
+                                             year=year,
+                                             month=month,
+                                             day=day),
+                             }
 
         e5pixel_inputs = {'e5pixel': fmtp(GenERA5PixelData.rule_outputs['e5pixel'],
                                           year=year,
@@ -568,17 +670,20 @@ class ConditionalERA5Hist(TaskRule):
 
         e5pixel = xr.load_dataset(self.inputs['e5pixel'])
         e5shear = xr.load_dataarray(self.inputs['era5p_shear'])
+        e5vimfd = xr.load_dataarray(self.inputs['era5p_vimfd'])
 
         # Build inputs to Dataset
         coords = {'time': e5pixel.time}
         data_vars = {}
-        for var in ERA5VARS + ['LLS_shear', 'L2M_shear', 'MLS_shear']:
+        for var in ERA5VARS + ['LLS_shear', 'L2M_shear', 'MLS_shear'] + ['vimfd']:
             if var == 'cape':
                 bins = np.linspace(0, 5000, 501)
             elif var == 'tcwv':
                 bins = np.linspace(0, 100, 101)
             elif var[-5:] == 'shear':
                 bins = np.linspace(0, 100, 101)
+            elif var == 'vimfd':
+                bins = np.linspace(-1e-5, 1e-5, 101)
             hist_mids = (bins[1:] + bins[:-1]) / 2
             hists = np.zeros((len(e5pixel.time), hist_mids.size))
             coords.update({f'{var}_hist_mids': hist_mids, f'{var}_bins': bins})
@@ -667,12 +772,13 @@ class ConditionalERA5Hist(TaskRule):
                 return np.histogram(data, bins=dsout.coords[f'{var}_bins'].values)[0]
 
             for var, reg in product(ERA5VARS, REGIONS):
+                data = e5data[var].values
                 # Calc hists. These 5 regions are mutually exclusive.
-                dsout[f'{reg}_{var}_MCS_shield'][i] = hist(e5data[var].values[mcs_shield_mask & regmask[reg]])
-                dsout[f'{reg}_{var}_MCS_core'][i] = hist(e5data[var].values[mcs_core_mask & regmask[reg]])
-                dsout[f'{reg}_{var}_cloud_shield'][i] = hist(e5data[var].values[cloud_shield_mask & regmask[reg]])
-                dsout[f'{reg}_{var}_cloud_core'][i] = hist(e5data[var].values[cloud_core_mask & regmask[reg]])
-                dsout[f'{reg}_{var}_env'][i] = hist(e5data[var].values[env_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_MCS_shield'][i] = hist(data[mcs_shield_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_MCS_core'][i] = hist(data[mcs_core_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_cloud_shield'][i] = hist(data[cloud_shield_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_cloud_core'][i] = hist(data[cloud_core_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_env'][i] = hist(data[env_mask & regmask[reg]])
 
             level2index = {
                 'LLS_shear': 0,
@@ -682,12 +788,24 @@ class ConditionalERA5Hist(TaskRule):
 
             for var, reg in product(['LLS_shear', 'L2M_shear', 'MLS_shear'], REGIONS):
                 level_index = level2index[var]
+                # Time mean and select each shear level.
+                shear = e5shear[i:i + 2, level_index].mean(dim='time').values
                 # Calc hists. These 5 regions are mutually exclusive.
-                dsout[f'{reg}_{var}_MCS_shield'][i] = hist(e5shear[i, level_index].values[mcs_shield_mask & regmask[reg]])
-                dsout[f'{reg}_{var}_MCS_core'][i] = hist(e5shear[i, level_index].values[mcs_core_mask & regmask[reg]])
-                dsout[f'{reg}_{var}_cloud_shield'][i] = hist(e5shear[i, level_index].values[cloud_shield_mask & regmask[reg]])
-                dsout[f'{reg}_{var}_cloud_core'][i] = hist(e5shear[i, level_index].values[cloud_core_mask & regmask[reg]])
-                dsout[f'{reg}_{var}_env'][i] = hist(e5shear[i, level_index].values[env_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_MCS_shield'][i] = hist(shear[mcs_shield_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_MCS_core'][i] = hist(shear[mcs_core_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_cloud_shield'][i] = hist(shear[cloud_shield_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_cloud_core'][i] = hist(shear[cloud_core_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_env'][i] = hist(shear[env_mask & regmask[reg]])
+
+            for var, reg in product(['vimfd'], REGIONS):
+                # Time mean.
+                vimfd = e5vimfd[i:i + 2].mean(dim='time').values
+                # Calc hists. These 5 regions are mutually exclusive.
+                dsout[f'{reg}_{var}_MCS_shield'][i] = hist(vimfd[mcs_shield_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_MCS_core'][i] = hist(vimfd[mcs_core_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_cloud_shield'][i] = hist(vimfd[cloud_shield_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_cloud_core'][i] = hist(vimfd[cloud_core_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_env'][i] = hist(vimfd[env_mask & regmask[reg]])
         dsout.to_netcdf(self.outputs['hist'])
 
 

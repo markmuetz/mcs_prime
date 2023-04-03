@@ -100,20 +100,20 @@ def plot_hists_for_var(ds, var):
 
 
 class PlotCombineConditionalERA5Hist(TaskRule):
-    rule_inputs = {'hist_{year}': (PATHS['outdir'] / 'conditional_era5_histograms' /
-                                   '{year}' /
-                                   'yearly_hist_{year}.nc')
+    rule_inputs = {f'hist_{year}': (PATHS['outdir'] / 'conditional_era5_histograms' /
+                                   f'{year}' /
+                                   f'yearly_hist_{year}.nc')
                    for year in YEARS}
     rule_outputs = {'cape': (PATHS['figdir'] / 'conditional_era5_histograms' /
                              'yearly_hist_cape.png'),
                     'tcwv': (PATHS['figdir'] / 'conditional_era5_histograms' /
-                             'yearly_hist_tcwv.png')
+                             'yearly_hist_tcwv.png')}
     depends_on = [plot_hist, plot_hist_probs, plot_hists_for_var]
 
     def rule_run(self):
         with xr.open_mfdataset(self.inputs.values()) as ds:
             print(ds)
 
-	    for var in ['cape', 'tcwv']:
+            for var in ['cape', 'tcwv']:
                 plot_hists_for_var(ds, var)
                 plt.savefig(self.outputs[var])

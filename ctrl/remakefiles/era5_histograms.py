@@ -14,7 +14,11 @@ from remake.util import format_path as fmtp
 
 from mcs_prime import PATHS, McsTracks, PixelData
 
-slurm_config = {'queue': 'short-serial', 'mem': 32000, 'max_runtime': '10:00:00'}
+# A couple of the jobs ran out of mem. A few of the GenERA5PixelData jobs
+# take longer than 4hr, plus the short-serial-4hr queue can only have
+# 400 active jobs on it, whereas short-serial can have 2000.
+# Increase mem and runtime.
+slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '10:00:00'}
 # slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 32000}
 era5_histograms = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
@@ -769,7 +773,17 @@ class CombineConditionalERA5Hist(TaskRule):
     var_matrix = {'year': years}
 
     def rule_run(self):
-        with xr.open_mfdataset(self.inputs.values()) as ds:
+        # Note, some datasets have zero length time dim.
+        # These will raise a "Cannot handle size zero dimensions" exception
+        # on xr.open_mfdataset.
+        # This is a simple method that ignores these files.
+        filtered_paths = []
+        for path in self.inputs.values():
+            ds = xr.open_dataset(path)
+            if ds.time.size != 0:
+                filtered_paths.append(path)
+
+        with xr.open_mfdataset(filtered_paths) as ds:
             ds.to_netcdf(self.outputs['hist'])
 
 

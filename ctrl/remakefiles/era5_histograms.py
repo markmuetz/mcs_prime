@@ -22,12 +22,13 @@ slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '10:00:00'
 # slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 32000}
 era5_histograms = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
-years = list(range(2000, 2021))
+# years = list(range(2000, 2021))
+years = [2020]
 months = range(1, 13)
 
 # For testing - 5 days.
-# DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
-DATES = pd.date_range(f'{years[0]}-01-01', f'{years[-1]}-12-31')
+DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
+# DATES = pd.date_range(f'{years[0]}-01-01', f'{years[-1]}-12-31')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
 
 
@@ -150,7 +151,7 @@ def gen_times(year, month):
     return e5times, [t + dt.timedelta(minutes=30) for t in e5times[:-1]]
 
 
-class ConditionalERA5ShearHist(TaskRule):
+class OldConditionalERA5ShearHist(TaskRule):
     enabled = False
     @staticmethod
     def rule_inputs(year, month):
@@ -303,7 +304,69 @@ class ConditionalERA5ShearHist(TaskRule):
         dsout.to_netcdf(self.outputs['hist'])
 
 
-class CombineConditionalERA5ShearHist(TaskRule):
+class GenERA5Shear(TaskRule):
+    @staticmethod
+    def rule_inputs(year, month, day):
+        start = dt.datetime(year, month, day)
+        # Note there are 24 of these.
+        e5times = pd.date_range(start, start + dt.timedelta(hours=24), freq='H')
+        e5inputs = {f'era5_{t}_{var}': (PATHS['era5dir'] /
+                                        f'data/oper/an_ml/{t.year}/{t.month:02d}/{t.day:02d}' /
+                                        (f'ecmwf-era5_oper_an_ml_{t.year}{t.month:02d}{t.day:02d}'
+                                         f'{t.hour:02d}00.{var}.nc'))
+                    for t in e5times
+                    for var in ['u', 'v']}
+        return e5inputs
+
+    rule_outputs = {'shear': (PATHS['outdir'] / 'era5_processed' /
+                              '{year}' /
+                              'daily_shear_{year}_{month:02d}_{day:02d}.nc')}
+    var_matrix = {
+        ('year', 'month', 'day'): DATE_KEYS,
+    }
+    def rule_run(self):
+        # https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
+        levels = [
+            136,  # 1010hPa/30m
+            111,  # 804hPa/1911m
+            101,  # 610hPa/4074m
+        ]
+        start = dt.datetime(self.year, self.month, self.day)
+        e5times = pd.date_range(start, start + dt.timedelta(hours=23), freq='H')
+        e5inputs = {(t, v): self.inputs[f'era5_{t}_{v}']
+                    for t in e5times
+                    for v in ['u', 'v']}
+        e5data = xr.open_mfdataset(e5inputs.values()).sel(latitude=slice(60, -60), level=levels).load()
+        u = e5data.u.values
+        v = e5data.v.values
+        # Calc LLS (1010-804), Low-to-mid shear (804-610), MLS (1010-610) in one line.
+        # LLS = shear[:, :, 0]
+        # Low-to-Mid shear = shear[:, :, 1]
+        # MLS = shear[:, :, 2]
+        # axis 1 is the level axis.
+        shear = np.sqrt((np.roll(u, -1, axis=1) - u)**2 + (np.roll(v, -1, axis=1) - v)**2)
+
+        dsout = xr.Dataset(
+            coords=dict(
+                time=e5times,
+                shear_level=[0, 1, 2],
+                latitude=e5data.latitude,
+                longitude=e5data.longitude,
+            ),
+            data_vars={
+                'shear': (('time', 'shear_level', 'latitude', 'longitude'), shear),
+            },
+            attrs={
+                'shear_level 0': 'LLS: shear between surf and 800 hPa (ERA5 136-111)',
+                'shear_level 1': 'Low-to-mid: shear between 800 and 600 hPa (ERA5 111-101)',
+                'shear_level 2': 'MLS: shear between surf and 600 hPa (ERA5 136-101)',
+            }
+        )
+        print(dsout)
+        dsout.to_netcdf(self.outputs['shear'])
+
+
+class OldCombineConditionalERA5ShearHist(TaskRule):
     enabled = False
     @staticmethod
     def rule_inputs(year):
@@ -324,6 +387,7 @@ class CombineConditionalERA5ShearHist(TaskRule):
 
 
 class GenERA5PixelData(TaskRule):
+    enabled = False
     """Generate ERA5 pixel data by regridding native MCS dataset masks/cloudnumbers
 
     The MCS dataset pixel-level data has a field cloudnumber, which maps onto the
@@ -440,162 +504,8 @@ class GenERA5PixelData(TaskRule):
         dsout.to_netcdf(self.outputs['e5pixel'], encoding=encoding)
 
 
-class OldConditionalERA5Hist(TaskRule):
-    enabled = False
-
-    @staticmethod
-    def rule_inputs(year, month, day, var, region):
-        start = dt.datetime(year, month, day)
-        # Note there are 25 of these so I can get ERA5 data on the hour either side
-        # of MCS dataset data (on the half hour).
-        e5times = pd.date_range(start, start + dt.timedelta(days=1), freq='H')
-
-        e5inputs = {f'era5_{t}': (PATHS['era5dir'] /
-                                  f'data/oper/an_sfc/{year}/{month:02d}/{day:02d}' /
-                                  (f'ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}'
-                                   f'{t.hour:02d}00.{var}.nc'))
-                    for t in e5times}
-
-        e5pixel_inputs = {'e5pixel': fmtp(GenERA5PixelData.rule_outputs['e5pixel'],
-                                          year=year,
-                                          month=month,
-                                          day=day)}
-        if year == 2000:
-            start_date = '20000601'
-        else:
-            start_date = f'{year}0101'
-        e5pixel_inputs['tracks'] = (PATHS['statsdir'] /
-                                    f'mcs_tracks_final_extc_{start_date}.0000_{year + 1}0101.0000.nc')
-
-        inputs = {
-            **e5inputs,
-            **e5pixel_inputs,
-            'ERA5_land_sea_mask': PATHS['era5dir'] / 'data/invariants/ecmwf-era5_oper_an_sfc_200001010000.lsm.inv.nc'}
-        return inputs
-
-    rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
-                             '{year}' /
-                             'daily_{var}_hist_{region}_{year}_{month:02d}_{day:02d}.nc')}
-
-    var_matrix = {
-        ('year', 'month', 'day'): DATE_KEYS,
-        'var': ['cape', 'tcwv'],
-        'region': ['all', 'land', 'ocean'],
-    }
-
-    def rule_run(self):
-        tracks = McsTracks.open(self.inputs['tracks'], None)
-        da_lsmask = xr.open_dataarray(self.inputs['ERA5_land_sea_mask'])
-        if self.region == 'all':
-            # All ones.
-            lsmask = da_lsmask[0].sel(latitude=slice(60, -60)).values >= 0
-        elif self.region == 'land':
-            # LSM has land == 1.
-            lsmask = da_lsmask[0].sel(latitude=slice(60, -60)).values > 0.5
-        elif self.region == 'ocean':
-            # LSM has ocean == 0.
-            lsmask = da_lsmask[0].sel(latitude=slice(60, -60)).values <= 0.5
-        else:
-            raise ValueError(f'Unknown region: {self.region}')
-
-        start = dt.datetime(self.year, self.month, self.day)
-        # Note there are 25 of these so I can get ERA5 data on the hour either side
-        # of MCS dataset data (on the half hour).
-        e5times = pd.date_range(start, start + dt.timedelta(days=1), freq='H')
-
-        e5inputs = {t: self.inputs[f'era5_{t}']
-                    for t in e5times}
-
-        e5pixel = xr.load_dataset(self.inputs['e5pixel'])
-
-        if self.var == 'cape':
-            bins = np.linspace(0, 5000, 501)
-        elif self.var == 'tcwv':
-            bins = np.linspace(0, 100, 101)
-        mids = (bins[1:] + bins[:-1]) / 2
-
-        hists = np.zeros((len(e5pixel.time), mids.size))
-
-        # Make a dataset to hold all the histogram data.
-        dsout = xr.Dataset(
-            coords=dict(
-                time=e5pixel.time,
-                hist_mid=mids,
-                bins=bins,
-            ),
-            data_vars={
-                f'{self.var}_MCS_shield': (('time', 'hist_mid'), hists.copy()),
-                f'{self.var}_MCS_core': (('time', 'hist_mid'), hists.copy()),
-                f'{self.var}_cloud_shield': (('time', 'hist_mid'), hists.copy()),
-                f'{self.var}_cloud_core': (('time', 'hist_mid'), hists.copy()),
-                f'{self.var}_env': (('time', 'hist_mid'), hists.copy()),
-            }
-        )
-
-        # Looping over subset of times.
-        for i, time in enumerate(e5pixel.time.values):
-            pdtime = pd.Timestamp(time)
-            time = pdtime.to_pydatetime()
-            print(time)
-
-            # Get cloudnumbers (cns) for tracks at given time.
-            ts = tracks.tracks_at_time(time)
-            # tmask is a 2d mask that spans multiple tracks, getting
-            # the cloudnumbers at *one time only*, that can be
-            # used to get cloudnumbers.
-            tmask = (ts.dstracks.base_time == pdtime).values
-            if tmask.sum() == 0:
-                self.logger.warn(f'No times matched in tracks DB for {pdtime}')
-                dsout[f'{self.var}_MCS_shield'][i].values[:] = None
-                dsout[f'{self.var}_MCS_core'][i].values[:] = None
-                dsout[f'{self.var}_cloud_shield'][i].values[:] = None
-                dsout[f'{self.var}_cloud_core'][i].values[:] = None
-                dsout[f'{self.var}_env'][i].values[:] = None
-                continue
-            # Each cloudnumber can be used to link to the corresponding
-            # cloud in the pixel data.
-            cns = ts.dstracks.cloudnumber.values[tmask]
-            # Nicer to have sorted values.
-            cns.sort()
-
-            # Load the e5 data and interp in time to pixel time.
-            e5time1 = time - dt.timedelta(minutes=30)
-            e5time2 = time + dt.timedelta(minutes=30)
-            e5data = (xr.open_mfdataset([e5inputs[t] for t in [e5time1, e5time2]])[self.var]
-                      .mean(dim='time').sel(latitude=slice(60, -60)).load())
-
-            # Convective core Tb < 225K.
-            core_mask = (e5pixel.tb[i].values < 225) & lsmask
-            # Tracked MCS shield (N.B. close to Tb < 241K but expanded by precip regions).
-            # INCLUDES CONV CORE.
-            mcs_core_shield_mask = e5pixel.cloudnumber[i].isin(cns).values & lsmask
-            # Non-MCS clouds (Tb < 241K). INCLUDES CONV CORE.
-            cloud_core_shield_mask = (e5pixel.cloudnumber[i].values > 0 & ~mcs_core_shield_mask) & lsmask
-            # MCS conv core only.
-            mcs_core_mask = mcs_core_shield_mask & core_mask
-            # Cloud conv core only.
-            cloud_core_mask = cloud_core_shield_mask & core_mask
-            # Env is everything outside of these two regions.
-            # THIS CODE IS NO LONGER CALLED BUT HAS A SUBTLE BUG!
-            # IT DOES NOT ONLY GET CALCED WHERE lsmask = TRUE.
-            env_mask = ~mcs_core_shield_mask & ~cloud_core_shield_mask
-
-            # Remove conv core from shields.
-            mcs_shield_mask = mcs_core_shield_mask & ~mcs_core_mask
-            cloud_shield_mask = cloud_core_shield_mask & ~cloud_core_mask
-
-            # Calc hists.
-            hist = partial(np.histogram, bins=bins)
-            # These 5 regions are mutually exclusive.
-            dsout[f'{self.var}_MCS_shield'][i] = hist(e5data.values[mcs_shield_mask])[0]
-            dsout[f'{self.var}_MCS_core'][i] = hist(e5data.values[mcs_core_mask])[0]
-            dsout[f'{self.var}_cloud_shield'][i] = hist(e5data.values[cloud_shield_mask])[0]
-            dsout[f'{self.var}_cloud_core'][i] = hist(e5data.values[cloud_core_mask])[0]
-            dsout[f'{self.var}_env'][i] = hist(e5data.values[env_mask])[0]
-        dsout.to_netcdf(self.outputs['hist'])
-
-
 ERA5VARS = ['cape', 'tcwv']
+ERA5_PROCESSED_VARS = ['shear']
 REGIONS = ['all', 'land', 'ocean']
 
 
@@ -613,6 +523,10 @@ class ConditionalERA5Hist(TaskRule):
                                          f'{t.hour:02d}00.{var}.nc'))
                     for t in e5times
                     for var in ERA5VARS}
+        e5proc_inputs = {'era5p_shear': fmtp(GenERA5Shear.rule_outputs['shear'],
+                                             year=year,
+                                             month=month,
+                                             day=day)}
 
         e5pixel_inputs = {'e5pixel': fmtp(GenERA5PixelData.rule_outputs['e5pixel'],
                                           year=year,
@@ -627,6 +541,7 @@ class ConditionalERA5Hist(TaskRule):
 
         inputs = {
             **e5inputs,
+            **e5proc_inputs,
             **e5pixel_inputs,
             'ERA5_land_sea_mask': PATHS['era5dir'] / 'data/invariants/ecmwf-era5_oper_an_sfc_200001010000.lsm.inv.nc'}
         return inputs
@@ -652,14 +567,17 @@ class ConditionalERA5Hist(TaskRule):
                     for v in ERA5VARS}
 
         e5pixel = xr.load_dataset(self.inputs['e5pixel'])
+        e5shear = xr.load_dataarray(self.inputs['era5p_shear'])
 
         # Build inputs to Dataset
         coords = {'time': e5pixel.time}
         data_vars = {}
-        for var in ERA5VARS:
+        for var in ERA5VARS + ['LLS_shear', 'L2M_shear', 'MLS_shear']:
             if var == 'cape':
                 bins = np.linspace(0, 5000, 501)
             elif var == 'tcwv':
+                bins = np.linspace(0, 100, 101)
+            elif var[-5:] == 'shear':
                 bins = np.linspace(0, 100, 101)
             hist_mids = (bins[1:] + bins[:-1]) / 2
             hists = np.zeros((len(e5pixel.time), hist_mids.size))
@@ -755,6 +673,21 @@ class ConditionalERA5Hist(TaskRule):
                 dsout[f'{reg}_{var}_cloud_shield'][i] = hist(e5data[var].values[cloud_shield_mask & regmask[reg]])
                 dsout[f'{reg}_{var}_cloud_core'][i] = hist(e5data[var].values[cloud_core_mask & regmask[reg]])
                 dsout[f'{reg}_{var}_env'][i] = hist(e5data[var].values[env_mask & regmask[reg]])
+
+            level2index = {
+                'LLS_shear': 0,
+                'L2M_shear': 1,
+                'MLS_shear': 2,
+            }
+
+            for var, reg in product(['LLS_shear', 'L2M_shear', 'MLS_shear'], REGIONS):
+                level_index = level2index[var]
+                # Calc hists. These 5 regions are mutually exclusive.
+                dsout[f'{reg}_{var}_MCS_shield'][i] = hist(e5shear[i, level_index].values[mcs_shield_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_MCS_core'][i] = hist(e5shear[i, level_index].values[mcs_core_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_cloud_shield'][i] = hist(e5shear[i, level_index].values[cloud_shield_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_cloud_core'][i] = hist(e5shear[i, level_index].values[cloud_core_mask & regmask[reg]])
+                dsout[f'{reg}_{var}_env'][i] = hist(e5shear[i, level_index].values[env_mask & regmask[reg]])
         dsout.to_netcdf(self.outputs['hist'])
 
 
@@ -786,23 +719,3 @@ class CombineConditionalERA5Hist(TaskRule):
         with xr.open_mfdataset(filtered_paths) as ds:
             ds.to_netcdf(self.outputs['hist'])
 
-
-class OldCombineConditionalERA5Hist(TaskRule):
-    enabled = False
-    @staticmethod
-    def rule_inputs(year, var, region):
-        dates = pd.date_range(f'{year}-01-01', f'{year}-12-31')
-        inputs = {f'hist_{d}': fmtp(ConditionalERA5Hist.rule_outputs['hist'],
-                                    year=d.year, month=d.month, day=d.day, var=var, region=region)
-                  for d in dates}
-        return inputs
-
-    rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
-                             '{year}' /
-                             'yearly_{var}_hist_{region}_{year}.nc')}
-
-    var_matrix = {'year': years, 'var': ['cape', 'tcwv'], 'region': ['all', 'land', 'ocean']}
-
-    def rule_run(self):
-        ds = xr.open_mfdataset(self.inputs.values())
-        ds.to_netcdf(self.outputs['hist'])

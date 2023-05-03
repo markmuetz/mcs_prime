@@ -28,8 +28,8 @@ years = [2020]
 months = range(1, 13)
 
 # For testing - 5 days.
-DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
-# DATES = pd.date_range(f'{years[0]}-01-01', f'{years[-1]}-12-31')
+# DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
+DATES = pd.date_range(f'{years[0]}-01-01', f'{years[-1]}-12-31')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
 
 

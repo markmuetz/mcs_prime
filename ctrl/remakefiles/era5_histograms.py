@@ -615,8 +615,8 @@ class ConditionalERA5Hist(TaskRule):
         e5times = pd.date_range(start, start + dt.timedelta(days=1), freq='H')
 
         e5inputs = {f'era5_{t}_{var}': (PATHS['era5dir'] /
-                                        f'data/oper/an_sfc/{year}/{month:02d}/{day:02d}' /
-                                        (f'ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}'
+                                        f'data/oper/an_sfc/{t.year}/{t.month:02d}/{t.day:02d}' /
+                                        (f'ecmwf-era5_oper_an_sfc_{t.year}{t.month:02d}{t.day:02d}'
                                          f'{t.hour:02d}00.{var}.nc'))
                     for t in e5times
                     for var in ERA5VARS}

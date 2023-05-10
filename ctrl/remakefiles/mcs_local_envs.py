@@ -18,8 +18,8 @@ from mcs_prime import PATHS, McsTracks, PixelData
 slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 32000}
 mcs_local_envs = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
-# years = list(range(2000, 2021))
-years = [2020]
+years = list(range(2000, 2021))
+# years = [2020]
 months = range(1, 13)
 
 # For testing - 5 days.

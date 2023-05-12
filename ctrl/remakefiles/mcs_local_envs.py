@@ -18,9 +18,11 @@ from mcs_prime import PATHS, McsTracks, PixelData
 slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 32000}
 mcs_local_envs = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
-years = list(range(2000, 2021))
-# years = [2020]
+# years = list(range(2000, 2021))
+years = [2020]
 months = range(1, 13)
+radius = [1, 100, 200, 500, 1000]
+
 
 # For testing - 5 days.
 # DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
@@ -174,7 +176,7 @@ class McsLocalEnv(TaskRule):
     def rule_run(self):
         tracks = McsTracks.open(self.inputs['tracks'], None)
 
-        dists = xr.open_dataarray(self.inputs['dists'])
+        dists = xr.load_dataarray(self.inputs['dists'])
 
         start = dt.datetime(self.year, self.month, self.day)
         # Note there are 25 of these so I can get ERA5 data on the hour either side
@@ -192,14 +194,36 @@ class McsLocalEnv(TaskRule):
         e5ds = (xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60))
                 .interp(time=mcs_times).load())
 
+        data_vars = {}
+        blank_data = np.zeros((1, len(radius), len(e5ds.latitude), len(e5ds.longitude)))
+        for v in ERA5VARS:
+            # Give both arrayes a time dimention with the mean MCS time for easier combining of files.
+            data_vars[f'{v}'] = (('time', 'latitude', 'longitude'),
+                                 e5ds[v].mean(dim='time').values[None, :, :])
+            data_vars[f'mcs_local_{v}'] = (('time', 'radius', 'latitude', 'longitude'),
+                                           blank_data.copy())
+        data_vars['dist_mask_sum'] = (('time', 'radius', 'latitude', 'longitude'),
+                                      blank_data.copy().astype(int))
+
+        dsout = xr.Dataset(
+            data_vars=data_vars,
+            coords=dict(
+                time=[mcs_times.mean()],
+                radius=radius,
+                latitude=e5ds.latitude,
+                longitude=e5ds.longitude,
+            )
+        )
+        dsout.radius.attrs['units'] = 'km'
+        print(dsout)
+
         mcs_local_vars = {}
         for v in ERA5VARS:
             mcs_local_vars[v] = []
 
-        for i, pdtime in enumerate(mcs_times):
+        for pdtime in mcs_times:
+            print(pdtime)
             nptime = pdtime.to_numpy()
-            time = pdtime.to_pydatetime()
-            print(time)
 
             time_mask = tracks.dstracks.base_time.values[:, 0] == nptime
             mcs_init_lats = tracks.dstracks.meanlat.values[:, 0][time_mask]
@@ -207,46 +231,85 @@ class McsLocalEnv(TaskRule):
 
             e5data = e5ds.sel(time=pdtime)
 
-            mcs_local_mask = np.zeros_like(e5data.cape.values, dtype=bool)
+            mcs_local_mask = np.zeros((len(radius), len(e5ds.latitude), len(e5ds.longitude)),
+                                      dtype=bool)
 
             for lat, lon in zip(mcs_init_lats, mcs_init_lons):
                 lat_idx, lon_idx, dist = get_dist(dists, lat, lon)
-                dist_mask = dist < 500
-                mcs_local_mask |= dist_mask
+                for i, r in enumerate(radius):
+                    dist_mask = dist < r
+                    mcs_local_mask[i, :, :] |= dist_mask
+
+            dsout.dist_mask_sum[0, :, :, :].values += mcs_local_mask.astype(int)
 
             for v in ERA5VARS:
-                mcs_local_var = np.copy(e5data[v].values)
+                # Broadcast variable into correct shape for applying masks at different radii.
+                mcs_local_var = (
+                    np.ones(len(radius))[:, None, None] * np.copy(e5data[v].values)[None, :, :]
+                )
                 mcs_local_var[~mcs_local_mask] = np.nan
                 mcs_local_vars[v].append(mcs_local_var)
 
-        data_vars = {}
         for v in ERA5VARS:
-            # Give both arrayes a time dimention with the mean MCS time for easier combining of files.
-            data_vars[f'{v}'] = (('time', 'latitude', 'longitude'),
-                                 e5ds[v].mean(dim='time').values[None, :, :])
-            data_vars[f'mcs_local_{v}'] = (('time', 'latitude', 'longitude'),
-                                           np.nanmean(np.array(mcs_local_vars[v]), axis=0)[None, :, :])
-        dsout = xr.Dataset(
-            data_vars=data_vars,
-            coords=dict(
-                time=[mcs_times.mean()],
-                latitude=e5data.latitude,
-                longitude=e5data.longitude,
-            )
-        )
+            # mcs_local_vars[v] is a list of arrays. List is time dim. Convert to
+            # array with shape (ntime, nradius, nlat, nlon).
+            data = np.array(mcs_local_vars[v])
+            assert data.shape == (len(mcs_times), len(radius), len(e5ds.latitude), len(e5ds.longitude))
+            # Collapse on the time dimension, then give arrage a time dimension with
+            # the mean MCS time for easier combining of files.
+            dsout[f'mcs_local_{v}'].values = np.nanmean(data, axis=0)[None, :, :, :]
+
+        # TODO: set encoding of dist_mask_sum to int.
         dsout.to_netcdf(self.outputs['mcs_local_env'])
+
+
+class CheckMcsLocalEnv(TaskRule):
+    rule_inputs = {'mcs_local_env': fmtp(McsLocalEnv.rule_outputs['mcs_local_env'],
+                                         year=2020, month=1, day=1),
+                   'tracks': (PATHS['statsdir'] /
+                              f'mcs_tracks_final_extc_20200101.0000_20210101.0000.nc')}
+    rule_outputs = {'fig': (PATHS['figdir'] / 'mcs_local_envs' /
+                            'check_figs' /
+                            'mcs_local_env_r{radius}km.png')}
+
+    var_matrix = {'radius': radius}
+
+    def rule_run(self):
+        tracks = McsTracks.open(self.inputs['tracks'], None)
+        mcs_local_env = xr.open_dataset(self.inputs['mcs_local_env']).sel(radius=self.radius)
+
+        mcs_start = dt.datetime(2020, 1, 1, 0, 30)
+        # 24 of these on the half hour.
+        mcs_times = pd.date_range(mcs_start, mcs_start + dt.timedelta(hours=23), freq='H')
+
+        fig, ax = plt.subplots(
+            1, 1,
+            subplot_kw=dict(projection=ccrs.PlateCarree()),
+        )
+        fig.set_size_inches((1920 / 100, 1080 / 100))
+        ax.set_title(f'{self.radius}')
+        ax.contourf(mcs_local_env.longitude, mcs_local_env.latitude, mcs_local_env.mcs_local_cape[0])
+
+        for pdtime in mcs_times:
+            nptime = pdtime.to_numpy()
+
+            time_mask = tracks.dstracks.base_time.values[:, 0] == nptime
+            mcs_init_lats = tracks.dstracks.meanlat.values[:, 0][time_mask]
+            mcs_init_lons = tracks.dstracks.meanlon.values[:, 0][time_mask]
+
+            ax.scatter(mcs_init_lons, mcs_init_lats, marker='x')
+
+        ax.coastlines()
+        ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False)
+
+        plt.savefig(self.outputs['fig'])
 
 
 class CombineMonthlyMcsLocalEnv(TaskRule):
     @staticmethod
     def rule_inputs(year, month):
-        start = dt.datetime(year, month, 1)
-        endmonth = month + 1
-        endyear = year
-        if endmonth == 13:
-            endmonth = 1
-            endyear += 1
-        end = dt.datetime(endyear, endmonth, 1) - dt.timedelta(days=1)
+        start = pd.Timestamp(year, month, 1)
+        end = start + pd.DateOffset(months=1) - pd.Timedelta(days=1)
         times = pd.date_range(start, end, freq='D')
 
         inputs = {f'era5_{t}': fmtp(McsLocalEnv.rule_outputs['mcs_local_env'],

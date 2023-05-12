@@ -32,10 +32,6 @@ DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
 # DATES = pd.date_range(f'{years[0]}-01-01', f'{years[-1]}-12-31')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
 
-NDAYS = 10
-NDAYS_DATES = pd.date_range('2020-01-01', '2021-01-01', freq=f'{NDAYS}D')
-# NDAYS_DATES = pd.date_range('2020-01-01', '2020-02-01', freq=f'{NDAYS}D')
-
 
 class ERA5Hist(TaskRule):
     enabled = False
@@ -718,6 +714,9 @@ class ConditionalERA5Hist(TaskRule):
         e5vimfd = (open_25hr_data(e5proc_vimfd_paths)
                    .interp(time=mcs_times).sel(time=mcs_times))
 
+        return tracks, e5pixel.load(), e5ds.load(), e5shear.load(), e5vimfd.load()
+
+    def load_regmask(self):
         regmask = {}
         for reg in REGIONS:
             # Build appropriate land-sea mask for region.
@@ -733,8 +732,8 @@ class ConditionalERA5Hist(TaskRule):
                 regmask['ocean'] = da_lsmask[0].sel(latitude=slice(60, -60)).values <= 0.5
             else:
                 raise ValueError(f'Unknown region: {reg}')
+        return regmask
 
-        return tracks, e5pixel.load(), e5ds.load(), e5shear.load(), e5vimfd.load(), regmask
 
     def build_output_datasets(self, e5pixel):
         # Build inputs to Dataset
@@ -833,7 +832,8 @@ class ConditionalERA5Hist(TaskRule):
 
     def rule_run(self):
         self.logger.info('Load data')
-        tracks, e5pixel, e5ds, e5shear, e5vimfd, regmask = self.load_data()
+        tracks, e5pixel, e5ds, e5shear, e5vimfd = self.load_data()
+        regmask = self.load_regmask()
         self.logger.info('Build output datasets')
         dsout, dsout2 = self.build_output_datasets(e5pixel)
 
@@ -915,16 +915,20 @@ class CombineConditionalERA5Hist(TaskRule):
             **{f'hist_{year}_{month}': fmtp(ConditionalERA5Hist.rule_outputs['hist'],
                                             year=year,
                                             month=month)
+               for month in months},
+            **{f'hist2_{year}_{month}': fmtp(ConditionalERA5Hist.rule_outputs['hist2'],
+                                             year=year,
+                                             month=month)
                for month in months}
-            # **{f'hist2_{d}': fmtp(ConditionalERA5Hist.rule_outputs['hist'],
-                                  # start=start)
-            # for start in NDAYS_DATES[NDAYS_DATES.year == year]}
         }
         return inputs
 
     rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
                              '{year}' /
-                             'yearly_hist_{year}.nc')}
+                             'yearly_hist_{year}.nc'),
+                    'hist2': (PATHS['outdir'] / 'conditional_era5_histograms' /
+                              '{year}' /
+                              'yearly_hist2_{year}.nc')}
 
     var_matrix = {'year': years}
 

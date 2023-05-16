@@ -33,83 +33,6 @@ DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
 
 
-class ERA5Hist(TaskRule):
-    enabled = False
-    @staticmethod
-    def rule_inputs(year, month, var):
-        days_in_month = calendar.monthrange(year, month)[1]
-        hours = range(24)
-        inputs = {f'day_hr_{d}_{h}': (PATHS['era5dir'] / 'data/oper/an_sfc/'
-                                      f'{year}/{month:02d}/{d:02d}'
-                                      f'/ecmwf-era5_oper_an_sfc_'
-                                      f'{year}{month:02d}{d:02d}{h:02d}00.{var}.nc')
-                  for d in range(1, days_in_month + 1)
-                  for h in hours}
-        return inputs
-    rule_outputs = {'hist': (PATHS['outdir'] / 'era5_histograms' /
-                             '{year}' /
-                             'monthly_{var}_hist_{year}_{month:02d}.nc')}
-
-    var_matrix = {'year': years, 'month': months, 'var': ['cape', 'tcwv']}
-
-    def rule_run(self):
-        month_start_day = dt.datetime(self.year, self.month, 1).timetuple().tm_yday
-        month_files = list(self.inputs.values())
-        if self.var == 'cape':
-            bins = np.linspace(0, 5000, 501)
-        elif self.var == 'tcwv':
-            bins = np.linspace(0, 100, 101)
-        mids = (bins[1:] + bins[:-1]) / 2
-
-        hists = np.zeros((len(month_files) // 24, bins.size - 1))
-
-        ndays = len(month_files) // 24
-        dsout = xr.Dataset(
-            coords=dict(
-                day=month_start_day + np.arange(ndays),
-                hist_mid=mids,
-                bins=bins,
-            ),
-            data_vars={
-                f'{self.var}_full': (('day', 'hist_mid'), hists.copy()),
-                f'{self.var}_tropics': (('day', 'hist_mid'), hists.copy()),
-                f'{self.var}_eq': (('day', 'hist_mid'), hists.copy()),
-            }
-        )
-
-        for i in range(0, len(month_files), 24):
-            j = i // 24
-            print(i, j)
-            # Just fill in the bins argument.
-            hist = partial(np.histogram, bins=bins)
-
-            day_files = month_files[i:i + 24]
-            da = xr.open_mfdataset(day_files).sel(latitude=slice(60, -60))[self.var]
-            dsout[f'{self.var}_full'][j] = hist(da.values)[0]
-            dsout[f'{self.var}_tropics'][j] = hist(da.sel(latitude=slice(20, -20)).values)[0]
-            dsout[f'{self.var}_eq'][j] = hist(da.sel(latitude=slice(5, -5)).values)[0]
-        dsout.to_netcdf(self.outputs['hist'])
-
-
-class CombineERA5Hist(TaskRule):
-    enabled = False
-    @staticmethod
-    def rule_inputs(year, var):
-        inputs = {f'hist_{m}': fmtp(ERA5Hist.rule_outputs['hist'], year=year, month=m, var=var)
-                  for m in months}
-        return inputs
-
-    rule_outputs = {'hist': (PATHS['outdir'] / 'era5_histograms' /
-                             '{year}' /
-                             'yearly_{var}_hist_{year}.nc')}
-
-    var_matrix = {'year': years, 'var': ['cape', 'tcwv']}
-
-    def rule_run(self):
-        ds = xr.open_mfdataset(self.inputs.values())
-        ds.to_netcdf(self.outputs['hist'])
-
-
 class GenRegridder(TaskRule):
     """Generate a xesmf regridder for regridding/coarsening from MCS dataset to ERA5 grid."""
     rule_inputs = {'cape': (PATHS['era5dir'] / 'data/oper/an_sfc/'
@@ -136,173 +59,6 @@ class GenRegridder(TaskRule):
         # Uses bilinear and periodic regridding.
         regridder = xe.Regridder(pixel_precip, e5cape, 'bilinear', periodic=True)
         regridder.to_netcdf(self.outputs['regridder'])
-
-
-def gen_times(year, month):
-    e5times = []
-    time = dt.datetime(year, month, 1, 0)
-    if month == 12:
-        end = dt.datetime(year + 1, 1, 1, 0)
-    else:
-        end = dt.datetime(year, month + 1, 1, 0)
-
-    while time <= end:
-        e5times.append(time)
-        time += dt.timedelta(minutes=60)
-    return e5times, [t + dt.timedelta(minutes=30) for t in e5times[:-1]]
-
-
-class OldConditionalERA5ShearHist(TaskRule):
-    enabled = False
-    @staticmethod
-    def rule_inputs(year, month):
-        e5times, pixel_times = gen_times(year, month)
-        e5inputs = {f'era5_{t}_{var}': (PATHS['era5dir'] /
-                                        f'data/oper/an_ml/{t.year}/{t.month:02d}/{t.day:02d}' /
-                                        (f'ecmwf-era5_oper_an_ml_{t.year}{t.month:02d}{t.day:02d}'
-                                         f'{t.hour:02d}00.{var}.nc'))
-                    for t in e5times
-                    for var in ['u', 'v']}
-
-        if year == 2000:
-            start_date = '20000601'
-        else:
-            start_date = f'{year}0101'
-        # Not all files exist! Do not include these.
-        pixel_paths = [(PATHS['pixeldir'] /
-                        f'{start_date}.0000_{t.year + 1}0101.0000'
-                        f'/{t.year}/{t.month:02d}/{t.day:02d}' /
-                        f'mcstrack_{t.year}{t.month:02d}{t.day:02d}_{t.hour:02d}30.nc')
-                       for t in pixel_times]
-        pixel_inputs = {f'pixel_{t}': p
-                        for t, p in zip(pixel_times, pixel_paths)
-                        if p.exists()}
-        inputs = {**e5inputs, **pixel_inputs}
-
-        inputs['tracks'] = (PATHS['statsdir'] /
-                            f'mcs_tracks_final_extc_{start_date}.0000_{year + 1}0101.0000.nc')
-        inputs['regridder'] = GenRegridder.rule_outputs['regridder']
-        return inputs
-
-    rule_outputs = {'hist': (PATHS['outdir'] / 'conditional_era5_histograms' /
-                             '{year}' /
-                             'monthly_shear_hist_{year}_{month:02d}.nc')}
-
-    var_matrix = {'year': years, 'month': months}
-
-    def rule_run(self):
-        levels = [
-            133,  # 1000hPa/107m
-            111,  # 804hPa/1911m
-            96,  # 508hPa/5469m
-            74,  # 197hPa/11890m
-        ]
-        bins = np.linspace(0, 100, 101)
-
-        tracks = McsTracks.open(self.inputs['tracks'], None)
-
-        e5times, orig_pixel_times = gen_times(self.year, self.month)
-        e5inputs = {(t, var): self.inputs[f'era5_{t}_{var}']
-                    for t in e5times
-                    for var in ['u', 'v']}
-        # Note, this is a subset of times based on which times exist.
-        pixel_times = [t for t in orig_pixel_times if f'pixel_{t}' in self.inputs]
-        pixel_inputs = {t: self.inputs[f'pixel_{t}']
-                        for t in pixel_times}
-
-        month_start_day = dt.datetime(self.year, self.month, 1).timetuple().tm_yday
-        mids = (bins[1:] + bins[:-1]) / 2
-
-        hists = np.zeros((len(pixel_times), len(levels), mids.size))
-
-        # Make a dataset to hold all the histogram data.
-        # max. len time is 24x31.
-        dsout = xr.Dataset(
-            coords=dict(
-                time=pixel_times,
-                hist_mid=mids,
-                levels=levels,
-                bins=bins,
-            ),
-            data_vars={
-                f'shear_MCS': (('time', 'levels', 'hist_mid'), hists.copy()),
-                f'shear_conv': (('time', 'levels', 'hist_mid'), hists.copy()),
-                f'shear_env': (('time', 'levels', 'hist_mid'), hists.copy()),
-            }
-        )
-        regridder = None
-        # Looping over subset of times.
-        for i, time in enumerate(pixel_times[:5]):
-            print(time)
-            # Get cloudnumbers (cns) for tracks at given time.
-            pdtime = pd.Timestamp(time)
-            ts = tracks.tracks_at_time(time)
-            frame = ts.pixel_data.get_frame(time)
-            # tmask is a 2d mask that spans multiple tracks, getting
-            # the cloudnumbers at *one time only*, that can be
-            # used to get cloudnumbers.
-            tmask = (ts.dstracks.base_time == pdtime).values
-            if tmask.sum() == 0:
-                self.logger.warn(f'No times matched in tracks DB for {pdtime}')
-                dsout[f'shear_MCS'][i].values[:] = None
-                dsout[f'shear_conv'][i].values[:] = None
-                dsout[f'shear_env'][i].values[:] = None
-                continue
-            # Each cloudnumber can be used to link to the corresponding
-            # cloud in the pixel data.
-            cns = ts.dstracks.cloudnumber.values[tmask]
-            # Nicer to have sorted values.
-            cns.sort()
-
-            # Load the pixel data.
-            dspixel = xr.open_dataset(pixel_inputs[time])
-            pixel_precip = dspixel.precipitation.isel(time=0).load()
-
-            # Load the e5 data and interp in time to pixel time.
-            e5time1 = time - dt.timedelta(minutes=30)
-            e5time2 = time + dt.timedelta(minutes=30)
-            e5paths = [e5inputs[(t, var)]
-                       for t in [e5time1, e5time2]
-                       for var in ['u', 'v']]
-            e5data = (xr.open_mfdataset(e5paths)
-                      .mean(dim='time').sel(latitude=slice(60, -60), level=levels).load())
-            u = e5data.u.values
-            v = e5data.v.values
-            # Calc LLS, MLS, HLS, DS in one line.
-            # LLS = shear[:, :, 0]
-            # MLS = shear[:, :, 1]
-            # HLS = shear[:, :, 2]
-            # DS = shear[:, :, 3]
-            shear = np.sqrt((np.roll(u, -1, axis=0) - u)**2 + (np.roll(v, -1, axis=0) - v)**2)
-
-            if regridder is None:
-                # Reload the regridder.
-                regridder = xe.Regridder(pixel_precip, e5data, 'bilinear', periodic=True,
-                                         reuse_weights=True, weights=self.inputs['regridder'])
-
-            # This is a lot faster than doing/cloudnumber! If you don't need the individual
-            # cloudnumber info you can use this to partition the 2D grid into MCS/non-MCS.
-            e5mcs_mask = regridder(frame.dspixel.cloudnumber.isin(cns).astype(float)) > 0.5
-            mcs_mask = e5mcs_mask[0]
-            e5tb = regridder(dspixel.tb)
-            # N.B. Feng et al. 2021 uses Tb < 225 to define cold cloud cores.
-            e5conv_mask = e5tb[0] < 225
-
-            # The three masks used are mutually exclusive:
-            # mcs_mask -- all values within MCS CCS.
-            # ~mcs_mask & e5conv_mask -- all values not in MCS but in convective regions.
-            # ~mcs_mask & ~e5conv_mask -- env.
-            assert (mcs_mask.sum() +
-                    (~mcs_mask & e5conv_mask).sum() +
-                    (~mcs_mask & ~e5conv_mask).sum()) == mcs_mask.size
-
-            # Calc hists.
-            hist = partial(np.histogram, bins=bins)
-            for j, level in enumerate(levels):
-                dsout[f'shear_MCS'][i, j] = hist(shear[j][mcs_mask])[0]
-                dsout[f'shear_conv'][i, j] = hist(shear[j][~mcs_mask & e5conv_mask])[0]
-                dsout[f'shear_env'][i, j] = hist(shear[j][~mcs_mask & ~e5conv_mask])[0]
-        dsout.to_netcdf(self.outputs['hist'])
 
 
 class GenERA5Shear(TaskRule):
@@ -482,8 +238,8 @@ class GenERA5VIMoistureFluxDiv(TaskRule):
         dsout.to_netcdf(self.outputs['vi_moisture_flux_div'])
 
 
-
 class GenERA5PixelData(TaskRule):
+    # Disabled because it takes a long time just to check all the files.
     enabled = False
     """Generate ERA5 pixel data by regridding native MCS dataset masks/cloudnumbers
 
@@ -604,6 +360,102 @@ class GenERA5PixelData(TaskRule):
 ERA5VARS = ['cape', 'tcwv']
 ERA5_PROCESSED_VARS = ['shear']
 REGIONS = ['all', 'land', 'ocean']
+
+class Era5MeanField(TaskRule):
+    enabled = False
+
+    def rule_inputs(year, month):
+        start = pd.Timestamp(year, month, 1)
+        # end = start + pd.DateOffset(months=1)
+        end = start + pd.DateOffset(days=1)
+        e5times = pd.date_range(start, end, freq='H')
+        proc_pixel_times = pd.date_range(start, end - pd.Timedelta(days=1), freq='D')
+
+        e5inputs = {f'era5_{t}_{var}': (PATHS['era5dir'] /
+                                        f'data/oper/an_sfc/{t.year}/{t.month:02d}/{t.day:02d}' /
+                                        (f'ecmwf-era5_oper_an_sfc_{t.year}{t.month:02d}{t.day:02d}'
+                                         f'{t.hour:02d}00.{var}.nc'))
+                    for t in e5times
+                    for var in ERA5VARS}
+        e5proc_shear = {
+            f'era5p_shear_{t}': fmtp(GenERA5Shear.rule_outputs['shear'],
+                                     year=t.year,
+                                     month=t.month,
+                                     day=t.day)
+            for t in proc_pixel_times
+        }
+        e5proc_vimfd = {
+            f'era5p_vimfd_{t}': fmtp(GenERA5VIMoistureFluxDiv.rule_outputs['vi_moisture_flux_div'],
+                                     year=t.year,
+                                     month=t.month,
+                                     day=t.day)
+            for t in proc_pixel_times
+        }
+        inputs = {
+            **e5inputs,
+            **e5proc_shear,
+            **e5proc_vimfd,
+        }
+        return inputs
+
+    rule_outputs = {'meanfield': (PATHS['outdir'] / 'conditional_era5_histograms' /
+                                  '{year}' /
+                                  'era5_mean_field_{year}_{month:02d}.nc')}
+
+    var_matrix = {
+        'year': years,
+        'month': months,
+    }
+
+    def load_data(self):
+        tracks = McsTracks.open(self.inputs['tracks'], None)
+
+        start = pd.Timestamp(self.year, self.month, 1)
+        end = start + pd.DateOffset(months=1)
+        e5times = pd.date_range(start, end, freq='H')
+        proc_pixel_times = pd.date_range(start, end - pd.Timedelta(days=1), freq='D')
+
+        e5paths = [self.inputs[f'era5_{t}_{v}']
+                   for t in e5times
+                   for v in ERA5VARS]
+        e5proc_shear_paths = [self.inputs[f'era5p_shear_{t}']
+                              for t in proc_pixel_times]
+        e5proc_vimfd_paths = [self.inputs[f'era5p_vimfd_{t}']
+                              for t in proc_pixel_times]
+        e5pixel_paths = [self.inputs[f'e5pixel_{t}']
+                              for t in proc_pixel_times]
+
+        def open_25hr_data(paths):
+            """These datasets have 25 hours of data in them - discard last hour for all but last.
+
+            Originally this was so I could load one day and have all the info to interp to half-hourly
+            times.
+            """
+            datasets = [xr.open_dataset(p) for p in paths]
+            return xr.concat(
+                [ds.isel(time=slice(24)) for ds in datasets[:-1]] +
+                [datasets[-1]],
+                dim='time'
+            )
+
+        self.logger.debug('Open Pixel')
+        e5pixel = open_25hr_data(e5pixel_paths)
+        mcs_times = pd.DatetimeIndex(e5pixel.time)
+
+        self.logger.debug('Open ERA5')
+        e5ds = (xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60))
+                .interp(time=mcs_times).sel(time=mcs_times))
+        self.logger.debug('Open proc shear')
+        e5shear = (open_25hr_data(e5proc_shear_paths)
+                   .interp(time=mcs_times).sel(time=mcs_times))
+        self.logger.debug('Open proc VIMFD')
+        e5vimfd = (open_25hr_data(e5proc_vimfd_paths)
+                   .interp(time=mcs_times).sel(time=mcs_times))
+
+        return e5pixel.load(), e5ds.load(), e5shear.load(), e5vimfd.load()
+
+    def rule_run(self):
+        pass
 
 
 class ConditionalERA5Hist(TaskRule):
@@ -816,7 +668,8 @@ class ConditionalERA5Hist(TaskRule):
         # Convective core Tb < 225K.
         core_mask = e5pixel.tb.values < 225
         # Non-MCS clouds (Tb < 241K). INCLUDES CONV CORE.
-        cloud_core_shield_mask = e5pixel.cloudnumber.values > 0 & ~mcs_core_shield_mask
+        # OPERATOR PRECEDENCE! Brackets are vital here.
+        cloud_core_shield_mask = (e5pixel.cloudnumber.values > 0) & ~mcs_core_shield_mask
         # MCS conv core only.
         mcs_core_mask = mcs_core_shield_mask & core_mask
         # Cloud conv core only.
@@ -827,6 +680,15 @@ class ConditionalERA5Hist(TaskRule):
         # Remove conv core from shields.
         mcs_shield_mask = mcs_core_shield_mask & ~mcs_core_mask
         cloud_shield_mask = cloud_core_shield_mask & ~cloud_core_mask
+
+        # Verify mutual exclusivity and that all points are covered.
+        assert (
+            mcs_core_mask.astype(int) +
+            mcs_shield_mask.astype(int) +
+            cloud_core_mask.astype(int) +
+            cloud_shield_mask.astype(int) +
+            env_mask.astype(int) == 1
+        ).all()
 
         return mcs_core_mask, mcs_shield_mask, cloud_core_mask, cloud_shield_mask, env_mask
 

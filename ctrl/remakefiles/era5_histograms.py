@@ -361,13 +361,11 @@ ERA5VARS = ['cape', 'tcwv']
 ERA5_PROCESSED_VARS = ['shear']
 REGIONS = ['all', 'land', 'ocean']
 
-class Era5MeanField(TaskRule):
-    enabled = False
 
+class Era5MeanField(TaskRule):
     def rule_inputs(year, month):
         start = pd.Timestamp(year, month, 1)
-        # end = start + pd.DateOffset(months=1)
-        end = start + pd.DateOffset(days=1)
+        end = start + pd.DateOffset(months=1)
         e5times = pd.date_range(start, end, freq='H')
         proc_pixel_times = pd.date_range(start, end - pd.Timedelta(days=1), freq='D')
 
@@ -408,11 +406,9 @@ class Era5MeanField(TaskRule):
     }
 
     def load_data(self):
-        tracks = McsTracks.open(self.inputs['tracks'], None)
-
         start = pd.Timestamp(self.year, self.month, 1)
         end = start + pd.DateOffset(months=1)
-        e5times = pd.date_range(start, end, freq='H')
+        e5times = pd.date_range(start, end - pd.Timedelta(hours=1), freq='H')
         proc_pixel_times = pd.date_range(start, end - pd.Timedelta(days=1), freq='D')
 
         e5paths = [self.inputs[f'era5_{t}_{v}']
@@ -422,40 +418,40 @@ class Era5MeanField(TaskRule):
                               for t in proc_pixel_times]
         e5proc_vimfd_paths = [self.inputs[f'era5p_vimfd_{t}']
                               for t in proc_pixel_times]
-        e5pixel_paths = [self.inputs[f'e5pixel_{t}']
-                              for t in proc_pixel_times]
 
         def open_25hr_data(paths):
-            """These datasets have 25 hours of data in them - discard last hour for all but last.
+            """These datasets have 25 hours of data in them - discard last hour for all.
 
             Originally this was so I could load one day and have all the info to interp to half-hourly
             times.
             """
             datasets = [xr.open_dataset(p) for p in paths]
             return xr.concat(
-                [ds.isel(time=slice(24)) for ds in datasets[:-1]] +
-                [datasets[-1]],
+                [ds.isel(time=slice(24)) for ds in datasets],
                 dim='time'
             )
 
-        self.logger.debug('Open Pixel')
-        e5pixel = open_25hr_data(e5pixel_paths)
-        mcs_times = pd.DatetimeIndex(e5pixel.time)
-
         self.logger.debug('Open ERA5')
-        e5ds = (xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60))
-                .interp(time=mcs_times).sel(time=mcs_times))
+        e5ds = xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60))
         self.logger.debug('Open proc shear')
-        e5shear = (open_25hr_data(e5proc_shear_paths)
-                   .interp(time=mcs_times).sel(time=mcs_times))
+        e5shear = open_25hr_data(e5proc_shear_paths)
         self.logger.debug('Open proc VIMFD')
-        e5vimfd = (open_25hr_data(e5proc_vimfd_paths)
-                   .interp(time=mcs_times).sel(time=mcs_times))
+        e5vimfd = open_25hr_data(e5proc_vimfd_paths)
 
-        return e5pixel.load(), e5ds.load(), e5shear.load(), e5vimfd.load()
+        return xr.merge([e5ds.load(), e5shear.load(), e5vimfd.load()])
 
     def rule_run(self):
-        pass
+        self.logger.info('Load data')
+        ds = self.load_data()
+        dsout = ds.mean(dim='time').load()
+        dsout = dsout.expand_dims({'time': 1})
+        dsout = dsout.assign_coords({'time': [pd.Timestamp(ds.time.mean().item())]})
+        dsout.attrs['ntimes'] = len(ds.time)
+        print(dsout)
+
+        comp = dict(zlib=True, complevel=4)
+        encoding = {var: comp for var in dsout.data_vars}
+        dsout.to_netcdf(self.outputs['meanfield'], encoding=encoding)
 
 
 class ConditionalERA5Hist(TaskRule):

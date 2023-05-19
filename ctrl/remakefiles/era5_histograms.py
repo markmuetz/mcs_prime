@@ -1033,9 +1033,10 @@ class CombineConditionalERA5HistGridpoint(TaskRule):
 
         self.logger.info('Concat datasets')
         ds = xr.concat(datasets, pd.Index(range(12), name='time_index'))
+        dsout = ds.sum(dim='time_index')
 
         self.logger.info('Write ds.sum')
         comp = dict(zlib=True, complevel=4)
         encoding = {var: comp for var in dsout.data_vars}
-        to_netcdf_tmp_then_copy(ds.sum(dim='time_index'), self.outputs['hist'], encoding)
+        to_netcdf_tmp_then_copy(dsout, self.outputs['hist'], encoding)
 

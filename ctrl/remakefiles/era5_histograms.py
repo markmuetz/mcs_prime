@@ -30,8 +30,8 @@ years = [2020]
 months = range(1, 13)
 
 # For testing - 5 days.
-DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
-# DATES = pd.date_range(f'{years[0]}-01-01', f'{years[-1]}-12-31')
+# DATES = pd.date_range(f'{years[0]}-01-01', f'{years[0]}-01-05')
+DATES = pd.date_range(f'{years[0]}-01-01', f'{years[-1]}-12-31')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
 
 
@@ -162,7 +162,7 @@ class GenERA5VIMoistureFluxDiv(TaskRule):
     @staticmethod
     def rule_inputs(year, month, day):
         start = dt.datetime(year, month, day)
-        # Note there are 225 these.
+        # Note there are 25 these.
         e5times = pd.date_range(start, start + dt.timedelta(hours=24), freq='H')
         e5inputs = {f'era5_{t}_{var}': (PATHS['era5dir'] /
                                         f'data/oper/an_ml/{t.year}/{t.month:02d}/{t.day:02d}' /
@@ -183,6 +183,9 @@ class GenERA5VIMoistureFluxDiv(TaskRule):
     depends_on = [ERA5Calc, calc_mf_u, calc_mf_v, calc_div_mf]
 
     def rule_run(self):
+        Re = 6371e3  # Radius of Earth in m.
+        g = 9.81  # accn due to gravity in m/s2.
+
         start = dt.datetime(self.year, self.month, self.day)
         # Note there are 25 of these.
         e5times = pd.date_range(start, start + dt.timedelta(hours=24), freq='H')
@@ -205,25 +208,28 @@ class GenERA5VIMoistureFluxDiv(TaskRule):
             T = e5data.t.values
             lnsp = e5data.lnsp.values
 
-            nlev = 137 - 60 + 1
+            nlev = 137 - 60 + 2
             p = e5calc.calc_pressure(lnsp)[-nlev:]
             Tv = e5calc.calc_Tv(T, q)
             print(p.mean(axis=(1, 2)))
             print('p', p.shape)
             print('Tv', Tv.shape)
-            rho = e5calc.calc_rho(p, Tv)
+            rho = e5calc.calc_rho(p[1:], Tv)
 
             # Calc dx/dy.
             dx_deg = e5data.longitude.values[1] - e5data.longitude.values[0]
             dy_deg = e5data.latitude.values[0] - e5data.latitude.values[1]  # N.B. want positive so swap indices.
-            Re = 6371e3  # Radius of Earth in m.
 
             dy = dy_deg / 360 * 2 * np.pi * Re  # km
             dx = np.cos(e5data.latitude.values * np.pi / 180) * dx_deg / 360 * 2 * np.pi * Re  # km
 
             div_mf = calc_div_mf(rho, q, u, v, dx, dy)
-            # TODO: Should be pressure weighted I think.
-            vi_div_mf.append(div_mf.sum(axis=0))
+
+            # Pressure weighted integral.
+            # Int_ps^pt(1 / (rho g) div_mf, dp)
+            dp = p[1:] - p[:-1]
+            vimfd = (1 / (rho[:, 1:-1, :] * g) * div_mf * dp[:, 1:-1, :]).sum(axis=0)
+            vi_div_mf.append(vimfd)
 
         dsout = xr.Dataset(
             coords=dict(
@@ -597,7 +603,7 @@ def get_bins(var):
     elif var[-5:] == 'shear':
         bins = np.linspace(0, 100, 101)
     elif var == 'vimfd':
-        bins = np.linspace(-1e-5, 1e-5, 101)
+        bins = np.linspace(-2e-3, 2e-3, 101)
     hist_mids = (bins[1:] + bins[:-1]) / 2
     return bins, hist_mids
 
@@ -744,6 +750,7 @@ class ConditionalERA5HistHourly(TaskRule):
         conditional_load_data,
         load_lsmask,
         build_hourly_output_dataset,
+        get_bins,
         gen_region_masks
     ]
 
@@ -833,6 +840,7 @@ class ConditionalERA5HistGridpoint(TaskRule):
         conditional_load_mcs_data,
         conditional_load_data,
         load_lsmask,
+        get_bins,
         gen_region_masks
     ]
 
@@ -942,7 +950,12 @@ class ConditionalERA5HistMeanfield(TaskRule):
         'year': years,
         'month': months,
     }
-    depends_on = [conditional_load_mcs_data, conditional_load_meanfield_data, gen_region_masks]
+    depends_on = [
+        conditional_load_mcs_data,
+        conditional_load_meanfield_data,
+        gen_region_masks,
+        get_bins,
+    ]
 
     def rule_run(self):
         self.logger.info('Load data')

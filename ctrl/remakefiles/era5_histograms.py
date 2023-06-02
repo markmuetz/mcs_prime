@@ -21,8 +21,8 @@ from mcs_prime.era5_calc import ERA5Calc
 # take longer than 4hr, plus the short-serial-4hr queue can only have
 # 400 active jobs on it, whereas short-serial can have 2000.
 # Increase mem and runtime.
-# slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '20:00:00'}
-slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 64000}
+slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '20:00:00'}
+# slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 64000}
 era5_histograms = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
 # years = list(range(2000, 2021))
@@ -248,7 +248,7 @@ class GenERA5VIMoistureFluxDiv(TaskRule):
 
 class GenERA5PixelData(TaskRule):
     # Disabled because it takes a long time just to check all the files.
-    enabled = False
+    # enabled = False
     """Generate ERA5 pixel data by regridding native MCS dataset masks/cloudnumbers
 
     The MCS dataset pixel-level data has a field cloudnumber, which maps onto the
@@ -319,6 +319,7 @@ class GenERA5PixelData(TaskRule):
             data_vars={
                 'cloudnumber': (('time', 'latitude', 'longitude'), data.copy()),
                 'tb': (('time', 'latitude', 'longitude'), data.copy()),
+                'precipitation': (('time', 'latitude', 'longitude'), data.copy()),
             }
         )
         regridder = None
@@ -353,15 +354,21 @@ class GenERA5PixelData(TaskRule):
             mcs_mask = e5cn.values[0] > 0.5
 
             e5tb = regridder(dspixel.tb)
+            e5precipitation = regridder(pixel_precip)
 
             dsout.cloudnumber[i] = e5cn[0]
             dsout.tb[i] = e5tb[0]
+            dsout.precipitation[i] = e5precipitation
             # N.B. I have checked that the max cloudnumber (1453) in the tracks dataset is < 2**16
             # assert cns.max() < 2**16 - 1
 
-        # Save as compressed int16 field for lots of compression!
-        comp = dict(dtype='int16', zlib=True, complevel=4)
-        encoding = {var: comp for var in dsout.data_vars}
+        encoding = {
+            # Save cloudnumber as compressed int16 field for lots of compression!
+            'cloudnumber': dict(dtype='int16', zlib=True, complevel=4),
+            # Compress these.
+            'tb': dict(zlib=True, complevel=4),
+            'precipitation': dict(zlib=True, complevel=4),
+        }
         dsout.to_netcdf(self.outputs['e5pixel'], encoding=encoding)
 
 

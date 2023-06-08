@@ -1,3 +1,4 @@
+from hashlib import sha1
 from pathlib import Path
 import pickle
 import psutil
@@ -93,7 +94,8 @@ class PixelInputsCache:
     Cache results so that I don't have to do this in any rule_inputs/rule_outputs,
     which dramatically slows down creating instances of tasks."""
     def __init__(self):
-        self.cache_path = Path('.pixel_inputs_cache.pkl')
+        hexkey = sha1(str((YEARS, MONTHS)).encode()).hexdigest()
+        self.cache_path = Path(f'.pixel_inputs_cache_{hexkey}.pkl')
         if not self.cache_path.exists():
             print('creating pixel inputs cache')
             self.all_pixel_inputs = self.create_cache()

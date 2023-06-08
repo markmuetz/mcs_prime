@@ -12,6 +12,7 @@ from era5_config_utils import *
 
 
 TODOS = '''
+TODOS
 * Make sure filenames are consistent
 * Make sure variables names are sensible/consistent
 * Docstrings for all fns, classes
@@ -45,7 +46,7 @@ class GenRegridder(TaskRule):
         # xesmf seems to manage without any issue though.
         # Uses bilinear and periodic regridding.
         regridder = xe.Regridder(pixel_precip, e5cape, 'bilinear', periodic=True)
-        to_netcdf_tmp_then_copy(regridder, self.outputs['regridder'])
+        regridder.to_netcdf(self.outputs['regridder'])
 
 
 class CalcERA5Shear(TaskRule):
@@ -359,7 +360,7 @@ class GenPixelDataOnERA5Grid(TaskRule):
             self.time_point(f'Regrid pixel {time}')
 
 
-class CalcERA55MeanField(TaskRule):
+class CalcERA5MeanField(TaskRule):
     @staticmethod
     def rule_inputs(year, month):
         # start = pd.Timestamp(year, month, 1)
@@ -400,9 +401,9 @@ class CalcERA55MeanField(TaskRule):
         self.logger.debug('Open ERA5')
         e5ds = xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60))
         self.logger.debug('Open proc shear')
-        e5shear = xr.open_mfdataset(e5proc_shear_paths)
+        e5shear = xr.open_mfdataset(e5proc_shear_paths, concat_dim='time', combine='nested')
         self.logger.debug('Open proc VIMFD')
-        e5vimfd = xr.open_mfdataset(e5proc_vimfd_paths)
+        e5vimfd = xr.open_mfdataset(e5proc_vimfd_paths, concat_dim='time', combine='nested')
 
         return xr.merge([e5ds.load(), e5shear.load(), e5vimfd.load()])
 

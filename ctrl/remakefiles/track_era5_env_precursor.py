@@ -4,16 +4,14 @@ import pickle
 from pathlib import Path
 from timeit import default_timer
 
-from cartopy.util import add_cyclic_point
 import numpy as np
 import pandas as pd
 import xarray as xr
-
-from remake import Remake, TaskRule
-from remake.util import format_path as fmtp
-
+from cartopy.util import add_cyclic_point
 from mcs_prime import PATHS, McsTracks, PixelData
 from mcs_prime.util import round_times_to_nearest_second
+from remake import Remake, TaskRule
+from remake.util import format_path as fmtp
 
 slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 16000}
 # slurm_config = {'queue': 'short-serial', 'mem': 16000}
@@ -26,8 +24,7 @@ NTRACKS_PER_BATCH = 1000
 # Well, I need to know how many tracks are in each year, so I can work out how many batches
 # I need to use each year. This has to be done before any tasks are created, so do on module load
 # and cache results. If I need to add more years I can just delete and recalc.
-batch_info_path = (PATHS['outdir'] / 'track_era5_env_precursor' /
-                   f'year_batch_info_{NTRACKS_PER_BATCH}.pkl')
+batch_info_path = PATHS['outdir'] / 'track_era5_env_precursor' / f'year_batch_info_{NTRACKS_PER_BATCH}.pkl'
 if not batch_info_path.exists():
     batch_info = []
     for year in range(2019, 2021):
@@ -44,8 +41,7 @@ else:
 
 # batch_info = [(y, b) for y, b in batch_info if y == 2019]
 years = sorted(set([y for y, b in batch_info]))
-nbatch_per_year = {year: len([(y, b) for y, b in batch_info if y == year])
-                   for year in years}
+nbatch_per_year = {year: len([(y, b) for y, b in batch_info if y == year]) for year in years}
 
 
 def xr_add_cyclic_point(da, lon_name='longitude'):
@@ -68,18 +64,20 @@ def xr_add_cyclic_point(da, lon_name='longitude'):
     new_coords[lon_name] = wrap_lon
 
     # Generate output DataArray with new data but same structure as input.
-    out_da = xr.DataArray(data=wrap_data,
-                          coords=new_coords,
-                          dims=da.dims,
-                          attrs=da.attrs)
+    out_da = xr.DataArray(data=wrap_data, coords=new_coords, dims=da.dims, attrs=da.attrs)
     return out_da
 
 
 class TrackERA5EnvPrecursor(TaskRule):
     rule_inputs = {}
-    rule_outputs = {'daily_track_era5_data': (PATHS['outdir'] / 'track_era5_env_precursor' /
-                                              '{year}' /
-                                              'daily_track_era5_data_{year}_batch-{batch:02d}.nc')}
+    rule_outputs = {
+        'daily_track_era5_data': (
+            PATHS['outdir']
+            / 'track_era5_env_precursor'
+            / '{year}'
+            / 'daily_track_era5_data_{year}_batch-{batch:02d}.nc'
+        )
+    }
 
     var_matrix = {('year', 'batch'): batch_info}
 
@@ -126,14 +124,17 @@ class TrackERA5EnvPrecursor(TaskRule):
 
             # Cannot interp track data - get ERA5 before and after and interp
             # using e.g. ...mean(dim=time).
-            paths = [(PATHS['era5dir'] / f'data/oper/an_sfc/{t.year}/{t.month:02d}/{t.day:02d}' /
-                      (f'ecmwf-era5_oper_an_sfc_{t.year}{t.month:02d}{t.day:02d}'
-                       f'{t.hour:02d}00.{var}.nc'))
-                     for var in variables
-                     for t in [e5time1, e5time2]]
+            paths = [
+                (
+                    PATHS['era5dir']
+                    / f'data/oper/an_sfc/{t.year}/{t.month:02d}/{t.day:02d}'
+                    / (f'ecmwf-era5_oper_an_sfc_{t.year}{t.month:02d}{t.day:02d}' f'{t.hour:02d}00.{var}.nc')
+                )
+                for var in variables
+                for t in [e5time1, e5time2]
+            ]
             # Lat limited to that of tracks, and midpoint time value.
-            e5 = (xr.open_mfdataset(paths).sel(latitude=slice(60, -60))
-                  .mean(dim='time').load())
+            e5 = xr.open_mfdataset(paths).sel(latitude=slice(60, -60)).mean(dim='time').load()
 
             track_point_mask = tracks.dstracks.base_time == pd.Timestamp(track_time)
             track_point_lon = tracks.dstracks.meanlon.values[track_point_mask]
@@ -175,9 +176,14 @@ class TrackERA5EnvPrecursor(TaskRule):
 
 class TrackERA5EnvPrecursorShear(TaskRule):
     rule_inputs = {}
-    rule_outputs = {'daily_track_era5_data': (PATHS['outdir'] / 'track_era5_env_precursor' /
-                                              '{year}' /
-                                              'daily_track_era5_data_shear_{year}_batch-{batch:02d}.nc')}
+    rule_outputs = {
+        'daily_track_era5_data': (
+            PATHS['outdir']
+            / 'track_era5_env_precursor'
+            / '{year}'
+            / 'daily_track_era5_data_shear_{year}_batch-{batch:02d}.nc'
+        )
+    }
 
     var_matrix = {('year', 'batch'): batch_info}
 
@@ -214,11 +220,7 @@ class TrackERA5EnvPrecursorShear(TaskRule):
         # Create an output dataset that is similar to the tracks dataset for the vars I am getting.
         var_data = {}
         for var in variables:
-            data = np.full([
-                len(tracks.dstracks.tracks),
-                len(tracks.dstracks.times),
-                len(levels)
-            ], np.nan)
+            data = np.full([len(tracks.dstracks.tracks), len(tracks.dstracks.times), len(levels)], np.nan)
             var_data[var] = (('tracks', 'times', 'level'), data)
         dsout = xr.Dataset(
             coords=dict(tracks=tracks.dstracks.tracks, times=tracks.dstracks.times, level=levels),
@@ -237,14 +239,17 @@ class TrackERA5EnvPrecursorShear(TaskRule):
 
             # Cannot interp track data - get ERA5 before and after and interp
             # using e.g. ...mean(dim=time).
-            paths = [(PATHS['era5dir'] / f'data/oper/an_ml/{t.year}/{t.month:02d}/{t.day:02d}' /
-                      (f'ecmwf-era5_oper_an_ml_{t.year}{t.month:02d}{t.day:02d}'
-                       f'{t.hour:02d}00.{var}.nc'))
-                     for var in variables
-                     for t in [e5time1, e5time2]]
+            paths = [
+                (
+                    PATHS['era5dir']
+                    / f'data/oper/an_ml/{t.year}/{t.month:02d}/{t.day:02d}'
+                    / (f'ecmwf-era5_oper_an_ml_{t.year}{t.month:02d}{t.day:02d}' f'{t.hour:02d}00.{var}.nc')
+                )
+                for var in variables
+                for t in [e5time1, e5time2]
+            ]
             # Lat limited to that of tracks, and midpoint time value.
-            e5 = (xr.open_mfdataset(paths).sel(latitude=slice(60, -60), level=levels)
-                  .mean(dim='time').load())
+            e5 = xr.open_mfdataset(paths).sel(latitude=slice(60, -60), level=levels).mean(dim='time').load()
 
             track_point_mask = tracks.dstracks.base_time == pd.Timestamp(track_time)
             track_point_lon = tracks.dstracks.meanlon.values[track_point_mask]
@@ -292,26 +297,32 @@ class CombineTrackERA5EnvPrecursor(TaskRule):
     @staticmethod
     def rule_inputs(year, datatype):
         if datatype == '2D':
-            inputs = {f'batch-{b:02d}': fmtp(TrackERA5EnvPrecursor.rule_outputs['daily_track_era5_data'],
-                                             year=year,
-                                             batch=b)
-                      for b in range(nbatch_per_year[year])}
+            inputs = {
+                f'batch-{b:02d}': fmtp(TrackERA5EnvPrecursor.rule_outputs['daily_track_era5_data'], year=year, batch=b)
+                for b in range(nbatch_per_year[year])
+            }
         elif datatype == 'shear':
-            inputs = {f'shear-batch-{b:02d}': fmtp(TrackERA5EnvPrecursorShear.rule_outputs['daily_track_era5_data'],
-                                                   year=year,
-                                                   batch=b)
-                      for b in range(nbatch_per_year[year])}
+            inputs = {
+                f'shear-batch-{b:02d}': fmtp(
+                    TrackERA5EnvPrecursorShear.rule_outputs['daily_track_era5_data'], year=year, batch=b
+                )
+                for b in range(nbatch_per_year[year])
+            }
         return inputs
 
     def rule_outputs(year, datatype):
         if datatype == '2D':
-            outputs = {'track_era5_data': (PATHS['outdir'] / 'track_era5_env_precursor' /
-                                           f'{year}' /
-                                           f'daily_track_era5_data_{year}.nc')}
+            outputs = {
+                'track_era5_data': (
+                    PATHS['outdir'] / 'track_era5_env_precursor' / f'{year}' / f'daily_track_era5_data_{year}.nc'
+                )
+            }
         elif datatype == 'shear':
-            outputs = {'track_era5_data': (PATHS['outdir'] / 'track_era5_env_precursor' /
-                                           f'{year}' /
-                                           f'daily_track_era5_data_shear_{year}.nc')}
+            outputs = {
+                'track_era5_data': (
+                    PATHS['outdir'] / 'track_era5_env_precursor' / f'{year}' / f'daily_track_era5_data_shear_{year}.nc'
+                )
+            }
         return outputs
 
     var_matrix = {'year': years, 'datatype': ['2D', 'shear']}

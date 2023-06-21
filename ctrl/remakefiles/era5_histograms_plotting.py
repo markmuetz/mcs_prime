@@ -1,12 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-
-
+from mcs_prime import PATHS
 from remake import Remake, TaskRule
 from remake.util import format_path as fmtp
-
-from mcs_prime import PATHS
 
 YEARS = list(range(2000, 2021))
 
@@ -23,11 +20,12 @@ def plot_hist(ds, ax=None, reg='all', v='cape', s=None, log=True):
     if ax is None:
         plt.figure(figsize=(10, 10))
         ax = plt.gca()
+
     def _plot_hist(ds, ax, h, fmt, title):
         bins = ds[f'{v}_bins'].values
         width = bins[1] - bins[0]
         h_density = h / (h.sum() * width)
-        ax.plot(ds[f'{v}_hist_mids'].values[s], h_density[s], fmt, label=title);
+        ax.plot(ds[f'{v}_hist_mids'].values[s], h_density[s], fmt, label=title)
 
     ax.set_title(f'{v.upper()} distributions')
     _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{v}_MCS_core'].values, axis=0), 'r-', 'MCS core')
@@ -100,14 +98,14 @@ def plot_hists_for_var(ds, var):
 
 
 class PlotCombineConditionalERA5Hist(TaskRule):
-    rule_inputs = {f'hist_{year}': (PATHS['outdir'] / 'conditional_era5_histograms' /
-                                   f'{year}' /
-                                   f'yearly_hist_{year}.nc')
-                   for year in YEARS}
-    rule_outputs = {'cape': (PATHS['figdir'] / 'conditional_era5_histograms' /
-                             'yearly_hist_cape.png'),
-                    'tcwv': (PATHS['figdir'] / 'conditional_era5_histograms' /
-                             'yearly_hist_tcwv.png')}
+    rule_inputs = {
+        f'hist_{year}': (PATHS['outdir'] / 'conditional_era5_histograms' / f'{year}' / f'yearly_hist_{year}.nc')
+        for year in YEARS
+    }
+    rule_outputs = {
+        'cape': (PATHS['figdir'] / 'conditional_era5_histograms' / 'yearly_hist_cape.png'),
+        'tcwv': (PATHS['figdir'] / 'conditional_era5_histograms' / 'yearly_hist_tcwv.png'),
+    }
     depends_on = [plot_hist, plot_hist_probs, plot_hists_for_var]
 
     def rule_run(self):

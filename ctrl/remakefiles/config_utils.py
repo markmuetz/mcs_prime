@@ -1,11 +1,10 @@
+import pickle
+import shutil
 from hashlib import sha1
 from pathlib import Path
-import pickle
-import psutil
-import shutil
 
 import pandas as pd
-
+import psutil
 from mcs_prime import PATHS
 
 # YEARS = list(range(2000, 2021))
@@ -28,72 +27,89 @@ DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
 DATE_MONTH_KEYS = [(y, m) for y in YEARS for m in MONTHS]
 
 PATH_ERA5_MODEL_LEVELS = PATHS['datadir'] / 'ERA5/ERA5_L137_model_levels_table.csv'
-PATH_REGRIDDER = (PATHS['outdir'] / 'conditional_era5_histograms' /
-                  'regridder' /
-                  'bilinear_1200x3600_481x1440_peri.nc')
-PATH_ERA5_LAND_SEA_MASK = (PATHS['era5dir'] /
-                           'data/invariants/ecmwf-era5_oper_an_sfc_200001010000.lsm.inv.nc')
-PATH_LAT_LON_DISTS = (PATHS['outdir'] / 'mcs_local_envs' /
-                      'lat_lon_distances.nc')
+PATH_REGRIDDER = PATHS['outdir'] / 'conditional_era5_histograms' / 'regridder' / 'bilinear_1200x3600_481x1440_peri.nc'
+PATH_ERA5_LAND_SEA_MASK = PATHS['era5dir'] / 'data/invariants/ecmwf-era5_oper_an_sfc_200001010000.lsm.inv.nc'
+PATH_LAT_LON_DISTS = PATHS['outdir'] / 'mcs_local_envs' / 'lat_lon_distances.nc'
 
-FMT_PATH_ERA5_ML = (PATHS['era5dir'] /
-                    'data/oper/an_ml/{year}/{month:02d}/{day:02d}' /
-                    ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}'
-                     '{hour:02d}00.{var}.nc'))
-FMT_PATH_ERA51_ML = (PATHS['era5dir'] /
-                     'data/oper/an_ml/{year}/era5.1_{year}_data/{month:02d}/{day:02d}' /
-                     ('ecmwf-era51_oper_an_ml_{year}{month:02d}{day:02d}'
-                     '{hour:02d}00.{var}.nc'))
-FMT_PATH_ERA5_SFC = (PATHS['era5dir'] /
-                     'data/oper/an_sfc/{year}/{month:02d}/{day:02d}' /
-                     ('ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}'
-                      '{hour:02d}00.{var}.nc'))
-FMT_PATH_ERA51_SFC = (PATHS['era5dir'] /
-                      'data/oper/an_sfc/{year}/era5.1_{year}_data/{month:02d}/{day:02d}' /
-                      ('ecmwf-era51_oper_an_sfc_{year}{month:02d}{day:02d}'
-                      '{hour:02d}00.{var}.nc'))
-FMT_PATH_ERA5P_SHEAR = (PATHS['outdir'] /
-                        'era5_processed/{year}/{month:02d}/{day:02d}' /
-                        ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}'
-                         '{hour:02d}00.proc_shear.nc'))
-FMT_PATH_ERA5P_VIMFD = (PATHS['outdir'] /
-                        'era5_processed/{year}/{month:02d}/{day:02d}' /
-                        ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}'
-                         '{hour:02d}00.proc_vimfd.nc'))
-FMT_PATH_PIXEL_ON_ERA5 = (PATHS['outdir'] / 'mcs_track_pixel_on_era5_grid' /
-                          '{year}/{month:02d}/{day:02d}' /
-                          'mcstrack_on_era5_grid_{year}{month:02d}{day:02d}{hour:02d}30.nc')
-FMT_PATH_ERA5_MEANFIELD = (PATHS['outdir'] / 'conditional_era5_histograms' /
-                           '{year}' /
-                           'era5_mean_field_{year}_{month:02d}.nc')
-FMT_PATH_PRECURSOR_COND_HIST = (PATHS['outdir'] / 'conditional_era5_histograms' /
-                                '{year}' /
-                                'coretb_precursor{precursor_time}_hourly_hist_{year}_{month:02d}.nc')
-FMT_PATH_COND_HIST_HOURLY = (PATHS['outdir'] / 'conditional_era5_histograms' /
-                             '{year}' / 'core{core_method}_hourly_hist_{year}_{month:02d}.nc')
-FMT_PATH_COND_MCS_LIFECYCLE_HIST_HOURLY = (PATHS['outdir'] / 'conditional_era5_histograms' /
-                                           '{year}' / 'lifecycle_hourly_hist_{year}_{month:02d}.nc')
-FMT_PATH_COND_HIST_GRIDPOINT = (PATHS['outdir'] / 'conditional_era5_histograms' /
-                                '{year}' / 'gridpoint_hist_{year}_{month:02d}.nc')
-FMT_PATH_COND_HIST_MEANFIELD = (PATHS['outdir'] / 'conditional_era5_histograms' /
-                                '{year}' / 'meanfield_hist_{year}_{month:02d}.nc')
-FMT_PATH_COMBINED_COND_HIST_GRIDPOINT = (PATHS['outdir'] / 'conditional_era5_histograms' /
-                                         '{year}' / 'gridpoint_hist_{year}.nc')
-FMT_PATH_CHECK_LAT_LON_DISTS_FIG = (PATHS['figdir'] / 'mcs_local_envs' /
-                                    'check_figs' /
-                                    'lat_lon_distances_{lat}_{lon}_{radius}.png')
-FMT_PATH_MCS_LOCAL_ENV = (PATHS['outdir'] / 'mcs_local_envs' /
-                          '{year}' / '{month:02d}' /
-                          'mcs_local_env_{mode} {year}_{month:02d}_{day:02d}.nc')
-FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV = (PATHS['outdir'] / 'mcs_local_envs' /
-                                    '{year}' / '{month:02d}' /
-                                    'lifecycle_mcs_local_env_{year}_{month:02d}.nc')
-FMT_PATH_CHECK_MCS_LOCAL_ENV = (PATHS['figdir'] / 'mcs_local_envs' /
-                                'check_figs' /
-                                'mcs_local_env_r{radius}km.png')
-FMT_PATH_COMBINE_MCS_LOCAL_ENV = (PATHS['outdir'] / 'mcs_local_envs' /
-                                  '{year}' / '{month:02d}' /
-                                  'mcs_local_env_{mode}_{year}_{month:02d}.nc')
+FMT_PATH_ERA5_ML = (
+    PATHS['era5dir']
+    / 'data/oper/an_ml/{year}/{month:02d}/{day:02d}'
+    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}' '{hour:02d}00.{var}.nc')
+)
+FMT_PATH_ERA51_ML = (
+    PATHS['era5dir']
+    / 'data/oper/an_ml/{year}/era5.1_{year}_data/{month:02d}/{day:02d}'
+    / ('ecmwf-era51_oper_an_ml_{year}{month:02d}{day:02d}' '{hour:02d}00.{var}.nc')
+)
+FMT_PATH_ERA5_SFC = (
+    PATHS['era5dir']
+    / 'data/oper/an_sfc/{year}/{month:02d}/{day:02d}'
+    / ('ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}' '{hour:02d}00.{var}.nc')
+)
+FMT_PATH_ERA51_SFC = (
+    PATHS['era5dir']
+    / 'data/oper/an_sfc/{year}/era5.1_{year}_data/{month:02d}/{day:02d}'
+    / ('ecmwf-era51_oper_an_sfc_{year}{month:02d}{day:02d}' '{hour:02d}00.{var}.nc')
+)
+FMT_PATH_ERA5P_SHEAR = (
+    PATHS['outdir']
+    / 'era5_processed/{year}/{month:02d}/{day:02d}'
+    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}' '{hour:02d}00.proc_shear.nc')
+)
+FMT_PATH_ERA5P_VIMFD = (
+    PATHS['outdir']
+    / 'era5_processed/{year}/{month:02d}/{day:02d}'
+    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}' '{hour:02d}00.proc_vimfd.nc')
+)
+FMT_PATH_PIXEL_ON_ERA5 = (
+    PATHS['outdir']
+    / 'mcs_track_pixel_on_era5_grid'
+    / '{year}/{month:02d}/{day:02d}'
+    / 'mcstrack_on_era5_grid_{year}{month:02d}{day:02d}{hour:02d}30.nc'
+)
+FMT_PATH_ERA5_MEANFIELD = (
+    PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'era5_mean_field_{year}_{month:02d}.nc'
+)
+FMT_PATH_PRECURSOR_COND_HIST = (
+    PATHS['outdir']
+    / 'conditional_era5_histograms'
+    / '{year}'
+    / 'coretb_precursor{precursor_time}_hourly_hist_{year}_{month:02d}.nc'
+)
+FMT_PATH_COND_HIST_HOURLY = (
+    PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'core{core_method}_hourly_hist_{year}_{month:02d}.nc'
+)
+FMT_PATH_COND_MCS_LIFECYCLE_HIST_HOURLY = (
+    PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'lifecycle_hourly_hist_{year}_{month:02d}.nc'
+)
+FMT_PATH_COND_HIST_GRIDPOINT = (
+    PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'gridpoint_hist_{year}_{month:02d}.nc'
+)
+FMT_PATH_COND_HIST_MEANFIELD = (
+    PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'meanfield_hist_{year}_{month:02d}.nc'
+)
+FMT_PATH_COMBINED_COND_HIST_GRIDPOINT = (
+    PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'gridpoint_hist_{year}.nc'
+)
+FMT_PATH_CHECK_LAT_LON_DISTS_FIG = (
+    PATHS['figdir'] / 'mcs_local_envs' / 'check_figs' / 'lat_lon_distances_{lat}_{lon}_{radius}.png'
+)
+FMT_PATH_MCS_LOCAL_ENV = (
+    PATHS['outdir']
+    / 'mcs_local_envs'
+    / '{year}'
+    / '{month:02d}'
+    / 'mcs_local_env_{mode} {year}_{month:02d}_{day:02d}.nc'
+)
+FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV = (
+    PATHS['outdir'] / 'mcs_local_envs' / '{year}' / '{month:02d}' / 'lifecycle_mcs_local_env_{year}_{month:02d}.nc'
+)
+FMT_PATH_CHECK_MCS_LOCAL_ENV = PATHS['figdir'] / 'mcs_local_envs' / 'check_figs' / 'mcs_local_env_r{radius}km.png'
+FMT_PATH_COMBINE_MCS_LOCAL_ENV = (
+    PATHS['outdir'] / 'mcs_local_envs' / '{year}' / '{month:02d}' / 'mcs_local_env_{mode}_{year}_{month:02d}.nc'
+)
+
+
 def fmt_mcs_stats_path(year):
     if year == 2000:
         start_date = '20000601'
@@ -108,10 +124,11 @@ def fmt_mcs_pixel_path(year, month, day, hour):
     else:
         start_date = f'{year}0101'
     # Not all files exist! Do not include those that don't.
-    return (PATHS['pixeldir'] /
-            f'{start_date}.0000_{year + 1}0101.0000'
-            f'/{year}/{month:02d}/{day:02d}' /
-            f'mcstrack_{year}{month:02d}{day:02d}_{hour:02d}30.nc')
+    return (
+        PATHS['pixeldir'] / f'{start_date}.0000_{year + 1}0101.0000'
+        f'/{year}/{month:02d}/{day:02d}' / f'mcstrack_{year}{month:02d}{day:02d}_{hour:02d}30.nc'
+    )
+
 
 def gen_pixel_times_for_day(year, month, day):
     start = pd.Timestamp(year, month, day, 0, 30)
@@ -126,6 +143,7 @@ class PixelInputsCache:
     It is a slow process working out whether all the pixel files exist or not.
     Cache results so that I don't have to do this in any rule_inputs/rule_outputs,
     which dramatically slows down creating instances of tasks."""
+
     def __init__(self):
         hexkey = sha1(str((YEARS, MONTHS)).encode()).hexdigest()
         self.cache_path = Path(f'.pixel_inputs_cache_{hexkey}.pkl')
@@ -142,8 +160,7 @@ class PixelInputsCache:
         for (year, month, day) in DATE_KEYS:
             hourly_pixel_times = gen_pixel_times_for_day(year, month, day)
             # Not all files exist! Do not include those that don't.
-            pixel_paths = [fmt_mcs_pixel_path(t.year, t.month, t.day, t.hour)
-                           for t in hourly_pixel_times]
+            pixel_paths = [fmt_mcs_pixel_path(t.year, t.month, t.day, t.hour) for t in hourly_pixel_times]
             pixel_times = []
             pixel_inputs = {}
             for time, path in zip(hourly_pixel_times, pixel_paths):
@@ -160,6 +177,7 @@ class PixelInputsCache:
     def load_cache(self):
         with self.cache_path.open('rb') as fp:
             return pickle.load(fp)
+
 
 pixel_inputs_cache = PixelInputsCache()
 
@@ -242,4 +260,3 @@ def get_bins(var):
         bins = np.linspace(-2e-3, 2e-3, 101)
     hist_mids = (bins[1:] + bins[:-1]) / 2
     return bins, hist_mids
-

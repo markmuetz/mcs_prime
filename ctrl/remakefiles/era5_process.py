@@ -8,7 +8,7 @@ from remake.util import format_path as fmtp
 
 from mcs_prime.era5_calc import ERA5Calc
 
-from era5_config_utils import *
+import config_utils as cu
 
 
 TODOS = '''
@@ -17,7 +17,6 @@ TODOS
 * Make sure variables names are sensible/consistent
 * Docstrings for all fns, classes
 * Validate all data
-* Shear levels as coord?
 * Consistent attrs for all created .nc files
 * Units on data vars etc.
 '''
@@ -30,9 +29,9 @@ era5_process = Remake(config=dict(slurm=slurm_config, content_checks=False, no_c
 
 class GenRegridder(TaskRule):
     """Generate a xesmf regridder for regridding/coarsening from MCS dataset to ERA5 grid."""
-    rule_inputs = {'cape': fmtp(FMT_PATH_ERA5_SFC, year=2020, month=1, day=1, hour=0, var='cape'),
-                   'pixel': fmt_mcs_pixel_path(year=2020, month=1, day=1, hour=0)}
-    rule_outputs = {'regridder': PATH_REGRIDDER}
+    rule_inputs = {'cape': fmtp(cu.FMT_PATH_ERA5_SFC, year=2020, month=1, day=1, hour=0, var='cape'),
+                   'pixel': cu.fmt_mcs_pixel_path(year=2020, month=1, day=1, hour=0)}
+    rule_outputs = {'regridder': cu.PATH_REGRIDDER}
 
     def rule_run(self):
         e5cape = xr.open_dataarray(self.inputs['cape'])
@@ -52,8 +51,9 @@ class GenRegridder(TaskRule):
 class CalcERA5Shear(TaskRule):
     @staticmethod
     def rule_inputs(year, month):
-        e5times = gen_era5_times_for_month(year, month)
-        e5inputs = {f'era5_{t}_{var}': fmtp(FMT_PATH_ERA5_ML,
+        e5times = cu.gen_era5_times_for_month(year, month)
+        fmt = cu.FMT_PATH_ERA5_ML if year not in range(2000, 2006) else cu.FMT_PATH_ERA51_ML
+        e5inputs = {f'era5_{t}_{var}': fmtp(fmt,
                                             year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
                     for t in e5times
                     for var in ['u', 'v']}
@@ -61,15 +61,15 @@ class CalcERA5Shear(TaskRule):
 
     @staticmethod
     def rule_outputs(year, month):
-        e5times = gen_era5_times_for_month(year, month)
-        outputs = {f'shear_{t}': fmtp(FMT_PATH_ERA5P_SHEAR,
+        e5times = cu.gen_era5_times_for_month(year, month)
+        outputs = {f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR,
                                       year=t.year, month=t.month, day=t.day, hour=t.hour)
                    for t in e5times}
         return outputs
 
     var_matrix = {
-        'year': YEARS,
-        'month': MONTHS,
+        'year': cu.YEARS,
+        'month': cu.MONTHS,
     }
 
     def rule_run(self):
@@ -79,7 +79,7 @@ class CalcERA5Shear(TaskRule):
             111,  # 804hPa/1911m
             101,  # 610hPa/4074m
         ]
-        e5times = gen_era5_times_for_month(self.year, self.month)
+        e5times = cu.gen_era5_times_for_month(self.year, self.month)
 
         for i, time in enumerate(e5times):
             print(time)
@@ -101,20 +101,20 @@ class CalcERA5Shear(TaskRule):
             dsout = xr.Dataset(
                 coords=dict(
                     time=time,
-                    shear_level=[0, 1, 2],
                     latitude=e5data.latitude,
                     longitude=e5data.longitude,
                 ),
                 data_vars={
-                    'shear': (('shear_level', 'latitude', 'longitude'), shear),
+                    f'shear_{i}': (('latitude', 'longitude'), shear[:, :, i])
+                    for i in range(len(levels))
                 },
                 attrs={
-                    'shear_level 0': 'LLS: shear between surf and 800 hPa (ERA5 136-111)',
-                    'shear_level 1': 'Low-to-mid: shear between 800 and 600 hPa (ERA5 111-101)',
-                    'shear_level 2': 'MLS: shear between surf and 600 hPa (ERA5 136-101)',
+                    'shear_0': 'LLS: shear between surf and 800 hPa (ERA5 136-111)',
+                    'shear_1': 'Low-to-mid: shear between 800 and 600 hPa (ERA5 111-101)',
+                    'shear_2': 'MLS: shear between surf and 600 hPa (ERA5 136-101)',
                 }
             )
-            to_netcdf_tmp_then_copy(dsout, self.outputs[f'shear_{time}'])
+            cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'shear_{time}'])
 
 
 def calc_mf_u(rho, q, u):
@@ -153,25 +153,25 @@ def calc_div_mf(rho, q, u, v, dx, dy):
 class CalcERA5VIMoistureFluxDiv(TaskRule):
     @staticmethod
     def rule_inputs(year, month):
-        e5times = gen_era5_times_for_month(year, month)
-        e5inputs = {f'era5_{t}_{var}': fmtp(FMT_PATH_ERA5_ML,
+        e5times = cu.gen_era5_times_for_month(year, month)
+        e5inputs = {f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5_ML,
                                             year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
                     for var in ['u', 'v', 't', 'q', 'lnsp']
                     for t in e5times}
-        e5inputs['model_levels'] = PATH_ERA5_MODEL_LEVELS
+        e5inputs['model_levels'] = cu.PATH_ERA5_MODEL_LEVELS
         return e5inputs
 
     @staticmethod
     def rule_outputs(year, month):
-        e5times = gen_era5_times_for_month(year, month)
-        outputs = {f'vimfd_{t}': fmtp(FMT_PATH_ERA5P_VIMFD,
+        e5times = cu.gen_era5_times_for_month(year, month)
+        outputs = {f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD,
                                       year=t.year, month=t.month, day=t.day, hour=t.hour)
                    for t in e5times}
         return outputs
 
     var_matrix = {
-        'year': YEARS,
-        'month': MONTHS,
+        'year': cu.YEARS,
+        'month': cu.MONTHS,
     }
 
     depends_on = [ERA5Calc, calc_mf_u, calc_mf_v, calc_div_mf]
@@ -180,7 +180,7 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
         Re = 6371e3  # Radius of Earth in m.
         g = 9.81  # accn due to gravity in m/s2.
 
-        e5times = gen_era5_times_for_month(self.year, self.month)
+        e5times = cu.gen_era5_times_for_month(self.year, self.month)
         e5calc = ERA5Calc(self.inputs['model_levels'])
 
         for i, time in enumerate(e5times):
@@ -234,7 +234,7 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
                 },
             )
             print(dsout)
-            to_netcdf_tmp_then_copy(dsout, self.outputs[f'vimfd_{time}'])
+            cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'vimfd_{time}'])
             self.time_point(f'Proc VIMFD {time}')
 
 
@@ -262,10 +262,10 @@ class GenPixelDataOnERA5Grid(TaskRule):
     @staticmethod
     def rule_inputs(year, month, day):
         # Just need one to recreate regridder.
-        e5inputs = {'cape': fmtp(FMT_PATH_ERA5_SFC, year=2020, month=1, day=1, hour=0, var='cape')}
+        e5inputs = {'cape': fmtp(cu.FMT_PATH_ERA5_SFC, year=2020, month=1, day=1, hour=0, var='cape')}
 
         # Not all files exist! Do not include those that don't.
-        pixel_times, pixel_inputs = pixel_inputs_cache.all_pixel_inputs[(year, month, day)]
+        pixel_times, pixel_inputs = cu.pixel_inputs_cache.all_pixel_inputs[(year, month, day)]
         inputs = {**e5inputs, **pixel_inputs}
 
         inputs['regridder'] = GenRegridder.rule_outputs['regridder']
@@ -273,15 +273,15 @@ class GenPixelDataOnERA5Grid(TaskRule):
 
     @staticmethod
     def rule_outputs(year, month, day):
-        pixel_times, pixel_inputs = pixel_inputs_cache.all_pixel_inputs[(year, month, day)]
-        pixel_output_paths = [fmtp(FMT_PATH_PIXEL_ON_ERA5, year=t.year, month=t.month, day=t.day, hour=t.hour)
+        pixel_times, pixel_inputs = cu.pixel_inputs_cache.all_pixel_inputs[(year, month, day)]
+        pixel_output_paths = [fmtp(cu.FMT_PATH_PIXEL_ON_ERA5, year=t.year, month=t.month, day=t.day, hour=t.hour)
                               for t in pixel_times]
         outputs = {f'pixel_on_e5_{t}': p
                    for t, p in zip(pixel_times, pixel_output_paths)}
         return outputs
 
     var_matrix = {
-        ('year', 'month', 'day'): DATE_KEYS
+        ('year', 'month', 'day'): cu.DATE_KEYS
     }
 
     def rule_run(self):
@@ -356,7 +356,7 @@ class GenPixelDataOnERA5Grid(TaskRule):
                 'tb': dict(zlib=True, complevel=4),
                 'precipitation': dict(zlib=True, complevel=4),
             }
-            to_netcdf_tmp_then_copy(dsout, self.outputs[f'pixel_on_e5_{time}'], encoding=encoding)
+            cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'pixel_on_e5_{time}'], encoding=encoding)
             self.time_point(f'Regrid pixel {time}')
 
 
@@ -366,11 +366,11 @@ class CalcERA5MeanField(TaskRule):
         # start = pd.Timestamp(year, month, 1)
         # end = start + pd.DateOffset(months=1)
         # e5times = pd.date_range(start, end, freq='H')
-        e5times = gen_era5_times_for_month(year, month)
-        e5inputs = {f'era5_{t}_{var}': fmtp(FMT_PATH_ERA5_SFC,
+        e5times = cu.gen_era5_times_for_month(year, month)
+        e5inputs = {f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5_SFC,
                                             year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
                     for t in e5times
-                    for var in ERA5VARS}
+                    for var in cu.ERA5VARS}
         e5proc_shear = CalcERA5Shear.rule_outputs(year=year, month=month)
         e5proc_vimfd = CalcERA5VIMoistureFluxDiv.rule_outputs(year=year, month=month)
         inputs = {
@@ -380,19 +380,19 @@ class CalcERA5MeanField(TaskRule):
         }
         return inputs
 
-    rule_outputs = {'meanfield': (FMT_PATH_ERA5_MEANFIELD)}
+    rule_outputs = {'meanfield': (cu.FMT_PATH_ERA5_MEANFIELD)}
 
     var_matrix = {
-        'year': YEARS,
-        'month': MONTHS,
+        'year': cu.YEARS,
+        'month': cu.MONTHS,
     }
 
     def load_data(self):
-        e5times = gen_era5_times_for_month(self.year, self.month)
+        e5times = cu.gen_era5_times_for_month(self.year, self.month)
 
         e5paths = [self.inputs[f'era5_{t}_{v}']
                    for t in e5times
-                   for v in ERA5VARS]
+                   for v in cu.ERA5VARS]
         e5proc_shear_paths = [self.inputs[f'shear_{t}']
                               for t in e5times]
         e5proc_vimfd_paths = [self.inputs[f'vimfd_{t}']
@@ -418,5 +418,5 @@ class CalcERA5MeanField(TaskRule):
 
         comp = dict(zlib=True, complevel=4)
         encoding = {var: comp for var in dsout.data_vars}
-        to_netcdf_tmp_then_copy(dsout, self.outputs['meanfield'], encoding=encoding)
+        cu.to_netcdf_tmp_then_copy(dsout, self.outputs['meanfield'], encoding=encoding)
 

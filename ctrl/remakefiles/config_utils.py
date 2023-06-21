@@ -13,11 +13,19 @@ YEARS = [2020]
 MONTHS = range(1, 13)
 # MONTHS = range(1, 2)
 
+RADII = [1, 100, 200, 500, 1000]
+
 ERA5VARS = ['cape', 'tcwv']
+SHEAR_ERA5VARS = ['LLS_shear', 'L2M_shear', 'MLS_shear']
+VIMFD_ERA5VARS = ['vimfd']
+PROC_ERA5VARS = SHEAR_ERA5VARS + VIMFD_ERA5VARS
+EXTENDED_ERA5VARS = ERA5VARS + PROC_ERA5VARS
+
 LS_REGIONS = ['all', 'land', 'ocean']
 
 DATES = pd.date_range(f'{YEARS[0]}-01-01', f'{YEARS[-1]}-12-31')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
+DATE_MONTH_KEYS = [(y, m) for y in YEARS for m in MONTHS]
 
 PATH_ERA5_MODEL_LEVELS = PATHS['datadir'] / 'ERA5/ERA5_L137_model_levels_table.csv'
 PATH_REGRIDDER = (PATHS['outdir'] / 'conditional_era5_histograms' /
@@ -25,14 +33,24 @@ PATH_REGRIDDER = (PATHS['outdir'] / 'conditional_era5_histograms' /
                   'bilinear_1200x3600_481x1440_peri.nc')
 PATH_ERA5_LAND_SEA_MASK = (PATHS['era5dir'] /
                            'data/invariants/ecmwf-era5_oper_an_sfc_200001010000.lsm.inv.nc')
+PATH_LAT_LON_DISTS = (PATHS['outdir'] / 'mcs_local_envs' /
+                      'lat_lon_distances.nc')
 
 FMT_PATH_ERA5_ML = (PATHS['era5dir'] /
                     'data/oper/an_ml/{year}/{month:02d}/{day:02d}' /
                     ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}'
                      '{hour:02d}00.{var}.nc'))
+FMT_PATH_ERA51_ML = (PATHS['era5dir'] /
+                     'data/oper/an_ml/{year}/era5.1_{year}_data/{month:02d}/{day:02d}' /
+                     ('ecmwf-era51_oper_an_ml_{year}{month:02d}{day:02d}'
+                     '{hour:02d}00.{var}.nc'))
 FMT_PATH_ERA5_SFC = (PATHS['era5dir'] /
                      'data/oper/an_sfc/{year}/{month:02d}/{day:02d}' /
                      ('ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}'
+                      '{hour:02d}00.{var}.nc'))
+FMT_PATH_ERA51_SFC = (PATHS['era5dir'] /
+                      'data/oper/an_sfc/{year}/era5.1_{year}_data/{month:02d}/{day:02d}' /
+                      ('ecmwf-era51_oper_an_sfc_{year}{month:02d}{day:02d}'
                       '{hour:02d}00.{var}.nc'))
 FMT_PATH_ERA5P_SHEAR = (PATHS['outdir'] /
                         'era5_processed/{year}/{month:02d}/{day:02d}' /
@@ -53,14 +71,29 @@ FMT_PATH_PRECURSOR_COND_HIST = (PATHS['outdir'] / 'conditional_era5_histograms' 
                                 'coretb_precursor{precursor_time}_hourly_hist_{year}_{month:02d}.nc')
 FMT_PATH_COND_HIST_HOURLY = (PATHS['outdir'] / 'conditional_era5_histograms' /
                              '{year}' / 'core{core_method}_hourly_hist_{year}_{month:02d}.nc')
+FMT_PATH_COND_MCS_LIFECYCLE_HIST_HOURLY = (PATHS['outdir'] / 'conditional_era5_histograms' /
+                                           '{year}' / 'lifecycle_hourly_hist_{year}_{month:02d}.nc')
 FMT_PATH_COND_HIST_GRIDPOINT = (PATHS['outdir'] / 'conditional_era5_histograms' /
                                 '{year}' / 'gridpoint_hist_{year}_{month:02d}.nc')
 FMT_PATH_COND_HIST_MEANFIELD = (PATHS['outdir'] / 'conditional_era5_histograms' /
                                 '{year}' / 'meanfield_hist_{year}_{month:02d}.nc')
 FMT_PATH_COMBINED_COND_HIST_GRIDPOINT = (PATHS['outdir'] / 'conditional_era5_histograms' /
                                          '{year}' / 'gridpoint_hist_{year}.nc')
-
-
+FMT_PATH_CHECK_LAT_LON_DISTS_FIG = (PATHS['figdir'] / 'mcs_local_envs' /
+                                    'check_figs' /
+                                    'lat_lon_distances_{lat}_{lon}_{radius}.png')
+FMT_PATH_MCS_LOCAL_ENV = (PATHS['outdir'] / 'mcs_local_envs' /
+                          '{year}' / '{month:02d}' /
+                          'mcs_local_env_{mode} {year}_{month:02d}_{day:02d}.nc')
+FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV = (PATHS['outdir'] / 'mcs_local_envs' /
+                                    '{year}' / '{month:02d}' /
+                                    'lifecycle_mcs_local_env_{year}_{month:02d}.nc')
+FMT_PATH_CHECK_MCS_LOCAL_ENV = (PATHS['figdir'] / 'mcs_local_envs' /
+                                'check_figs' /
+                                'mcs_local_env_r{radius}km.png')
+FMT_PATH_COMBINE_MCS_LOCAL_ENV = (PATHS['outdir'] / 'mcs_local_envs' /
+                                  '{year}' / '{month:02d}' /
+                                  'mcs_local_env_{mode}_{year}_{month:02d}.nc')
 def fmt_mcs_stats_path(year):
     if year == 2000:
         start_date = '20000601'
@@ -143,7 +176,7 @@ def print_mem_usage(format='bytes'):
     factor = factor_map[format]
     process = psutil.Process()
     mem_usage_bytes = process.memory_info().rss
-    print(f'{mem_usage_bytes / factor} {format}')
+    print(f'{mem_usage_bytes / factor:.2f} {format}')
 
 
 def gen_era5_times_for_month(year, month, include_precursor_offset=True):
@@ -170,4 +203,43 @@ def to_netcdf_tmp_then_copy(ds, outpath, encoding=None):
 
     ds.to_netcdf(tmppath, encoding=encoding)
     shutil.move(tmppath, outpath)
+
+
+def lon_180_to_360(v):
+    return np.where(v < 0, v + 360, v)
+
+
+def lon_360_to_180(v):
+    return np.where(v > 180, v - 360, v)
+
+
+def find_nearest(array, value):
+    idx = (np.abs(array - value)).argmin()
+    return idx
+
+
+def find_nearest_circular(array, value):
+    # Convert array and value to radians
+    array_rad = np.radians(array)
+    value_rad = np.radians(value)
+
+    # Compute the circular distance between value and each element in array
+    diff = np.arctan2(np.sin(value_rad - array_rad), np.cos(value_rad - array_rad))
+
+    # Find the index of the minimum circular distance
+    idx = np.abs(diff).argmin()
+    return idx
+
+
+def get_bins(var):
+    if var == 'cape':
+        bins = np.linspace(0, 5000, 101)
+    elif var == 'tcwv':
+        bins = np.linspace(0, 100, 101)
+    elif var[-5:] == 'shear':
+        bins = np.linspace(0, 100, 101)
+    elif var == 'vimfd':
+        bins = np.linspace(-2e-3, 2e-3, 101)
+    hist_mids = (bins[1:] + bins[:-1]) / 2
+    return bins, hist_mids
 

@@ -106,17 +106,9 @@ def conditional_load_data(logger, year, month, inputs, precursor_time=0):
     logger.debug('Open ERA5')
     e5ds = xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60)).interp(time=mcs_times).sel(time=mcs_times)
     logger.debug('Open proc shear')
-    e5shear = (
-        xr.open_mfdataset(e5proc_shear_paths)
-        .interp(time=mcs_times)
-        .sel(time=mcs_times)
-    )
+    e5shear = xr.open_mfdataset(e5proc_shear_paths).interp(time=mcs_times).sel(time=mcs_times)
     logger.debug('Open proc VIMFD')
-    e5vimfd = (
-        xr.open_mfdataset(e5proc_vimfd_paths)
-        .interp(time=mcs_times)
-        .sel(time=mcs_times)
-    )
+    e5vimfd = xr.open_mfdataset(e5proc_vimfd_paths).interp(time=mcs_times).sel(time=mcs_times)
 
     logger.debug('Load data')
     return tracks, pixel_on_e5, xr.merge([e5ds.load(), e5shear.load(), e5vimfd.load()])
@@ -315,6 +307,7 @@ def build_hourly_output_dataset(pixel_on_e5):
 
 class PrecursorConditionalERA5HistHourly(TaskRule):
     enabled = False
+
     @staticmethod
     def rule_inputs(year, month, precursor_time):
         e5inputs, e5proc_shear, e5proc_vimfd, pixel_on_e5_inputs, e5lsm = conditional_inputs(

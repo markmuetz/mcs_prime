@@ -135,14 +135,18 @@ class McsLocalEnv(TaskRule):
             for t in e5times
             for var in cu.ERA5VARS
         }
-        inputs.update({
-            f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR, year=t.year, month=t.month, day=t.day, hour=t.hour)
-            for t in e5times
-        })
-        inputs.update({
-            f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
-            for t in e5times
-        })
+        inputs.update(
+            {
+                f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR, year=t.year, month=t.month, day=t.day, hour=t.hour)
+                for t in e5times
+            }
+        )
+        inputs.update(
+            {
+                f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
+                for t in e5times
+            }
+        )
 
         inputs['tracks'] = cu.fmt_mcs_stats_path(year)
         inputs['dists'] = cu.PATH_LAT_LON_DISTS
@@ -252,14 +256,18 @@ class LifecycleMcsLocalEnvHist(TaskRule):
             for t in e5times
             for var in cu.ERA5VARS
         }
-        inputs.update({
-            f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR, year=t.year, month=t.month, day=t.day, hour=t.hour)
-            for t in e5times
-        })
-        inputs.update({
-            f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
-            for t in e5times
-        })
+        inputs.update(
+            {
+                f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR, year=t.year, month=t.month, day=t.day, hour=t.hour)
+                for t in e5times
+            }
+        )
+        inputs.update(
+            {
+                f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
+                for t in e5times
+            }
+        )
 
         inputs['tracks'] = cu.fmt_mcs_stats_path(year)
         inputs['dists'] = cu.PATH_LAT_LON_DISTS

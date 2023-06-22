@@ -70,8 +70,7 @@ class CalcERA5Shear(TaskRule):
         return outputs
 
     var_matrix = {
-        'year': cu.YEARS,
-        'month': cu.MONTHS,
+        ('year', 'month'): [(2019, 12)] + cu.YEARS_MONTHS + [(2021, 1)],
     }
 
     def rule_run(self):
@@ -101,11 +100,11 @@ class CalcERA5Shear(TaskRule):
             shear = np.sqrt((np.roll(u, -1, axis=0) - u) ** 2 + (np.roll(v, -1, axis=0) - v) ** 2)
             dsout = xr.Dataset(
                 coords=dict(
-                    time=time,
+                    time=[time],
                     latitude=e5data.latitude,
                     longitude=e5data.longitude,
                 ),
-                data_vars={f'shear_{i}': (('latitude', 'longitude'), shear[:, :, i]) for i in range(len(levels))},
+                data_vars={f'shear_{i}': (('latitude', 'longitude'), shear[i, :, :]) for i in range(len(levels))},
                 attrs={
                     'shear_0': 'LLS: shear between surf and 800 hPa (ERA5 136-111)',
                     'shear_1': 'Low-to-mid: shear between 800 and 600 hPa (ERA5 111-101)',
@@ -174,8 +173,7 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
         return outputs
 
     var_matrix = {
-        'year': cu.YEARS,
-        'month': cu.MONTHS,
+        ('year', 'month'): [(2019, 12)] + cu.YEARS_MONTHS + [(2021, 1)],
     }
 
     depends_on = [ERA5Calc, calc_mf_u, calc_mf_v, calc_div_mf]
@@ -190,7 +188,6 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
         for i, time in enumerate(e5times):
             # Running out of memory doing full 4D calc: break into 24x31 3D calc.
             print(time)
-            self.time_point(f'Proc VIMFD {time}')
             e5inputs = {(time, v): self.inputs[f'era5_{time}_{v}'] for v in ['u', 'v', 't', 'q', 'lnsp']}
             # Only load levels where appreciable q, to save memory.
             # q -> 0 by approx. level 70. Go higher (level 60=~100hPa) to be safe.
@@ -227,7 +224,7 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
 
             dsout = xr.Dataset(
                 coords=dict(
-                    time=time,
+                    time=[time],
                     latitude=latitude[1:-1],
                     longitude=longitude,
                 ),
@@ -235,7 +232,6 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
             )
             print(dsout)
             cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'vimfd_{time}'])
-            self.time_point(f'Proc VIMFD {time}')
 
 
 class GenPixelDataOnERA5Grid(TaskRule):
@@ -285,7 +281,7 @@ class GenPixelDataOnERA5Grid(TaskRule):
 
     def rule_run(self):
         e5cape = xr.open_dataarray(self.inputs['cape']).sel(latitude=slice(60, -60))
-        pixel_times = gen_pixel_times_for_day(self.year, self.month, self.day)
+        pixel_times = cu.gen_pixel_times_for_day(self.year, self.month, self.day)
 
         # Note, this is a subset of times based on which times exist.
         pixel_inputs = {t: self.inputs[f'pixel_{t}'] for t in pixel_times if f'pixel_{t}' in self.inputs}
@@ -294,10 +290,9 @@ class GenPixelDataOnERA5Grid(TaskRule):
         regridder = None
         for i, time in enumerate(pixel_inputs.keys()):
             print(time)
-            self.time_point(f'Regrid pixel {time}')
             dsout = xr.Dataset(
                 coords=dict(
-                    time=time,
+                    time=[time],
                     latitude=e5cape.latitude,
                     longitude=e5cape.longitude,
                 ),
@@ -360,7 +355,6 @@ class GenPixelDataOnERA5Grid(TaskRule):
                 'precipitation': dict(zlib=True, complevel=4),
             }
             cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'pixel_on_e5_{time}'], encoding=encoding)
-            self.time_point(f'Regrid pixel {time}')
 
 
 class CalcERA5MeanField(TaskRule):
@@ -401,9 +395,9 @@ class CalcERA5MeanField(TaskRule):
         self.logger.debug('Open ERA5')
         e5ds = xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60))
         self.logger.debug('Open proc shear')
-        e5shear = xr.open_mfdataset(e5proc_shear_paths, concat_dim='time', combine='nested')
+        e5shear = xr.open_mfdataset(e5proc_shear_paths)
         self.logger.debug('Open proc VIMFD')
-        e5vimfd = xr.open_mfdataset(e5proc_vimfd_paths, concat_dim='time', combine='nested')
+        e5vimfd = xr.open_mfdataset(e5proc_vimfd_paths)
 
         return xr.merge([e5ds.load(), e5shear.load(), e5vimfd.load()])
 

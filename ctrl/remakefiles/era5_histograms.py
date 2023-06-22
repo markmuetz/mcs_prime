@@ -83,10 +83,10 @@ def meanfield_conditional_inputs():
 def conditional_load_mcs_data(logger, year, month, inputs):
     logger.debug('Open tracks')
     tracks = McsTracks.open(inputs['tracks'], None)
-    pixel_on_e5_paths = [v for k, v in inputs.items() if k[:7] == 'pixel_on_e5']
+    pixel_on_e5_paths = [v for k, v in inputs.items() if k.startswith('pixel_on_e5')]
 
     logger.debug('Open Pixel')
-    pixel_on_e5 = xr.open_mfdataset(pixel_on_e5_paths, concat_dim='time', combine='nested')
+    pixel_on_e5 = xr.open_mfdataset(pixel_on_e5_paths)
     return tracks, pixel_on_e5
 
 
@@ -107,13 +107,13 @@ def conditional_load_data(logger, year, month, inputs, precursor_time=0):
     e5ds = xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60)).interp(time=mcs_times).sel(time=mcs_times)
     logger.debug('Open proc shear')
     e5shear = (
-        xr.open_mfdataset(e5proc_shear_paths, concat_dim='time', combine='nested')
+        xr.open_mfdataset(e5proc_shear_paths)
         .interp(time=mcs_times)
         .sel(time=mcs_times)
     )
     logger.debug('Open proc VIMFD')
     e5vimfd = (
-        xr.open_mfdataset(e5proc_vimfd_paths, concat_dim='time', combine='nested')
+        xr.open_mfdataset(e5proc_vimfd_paths)
         .interp(time=mcs_times)
         .sel(time=mcs_times)
     )
@@ -123,13 +123,13 @@ def conditional_load_data(logger, year, month, inputs, precursor_time=0):
 
 
 def conditional_load_meanfield_data(logger, inputs):
-    e5meanfield = xr.open_mfdataset([v for k, v in inputs.items() if k[:5] == 'era5_'])
+    e5meanfield = xr.open_mfdataset([v for k, v in inputs.items() if k.startswith('era5_')])
     return e5meanfield.mean(dim='time').load()
 
 
 def load_lsmask(path):
     lsmask = {}
-    for lsreg in LS_REGIONS:
+    for lsreg in cu.LS_REGIONS:
         # Build appropriate land-sea mask for region.
         da_lsmask = xr.load_dataarray(path)
         if lsreg == 'all':
@@ -294,7 +294,7 @@ def build_hourly_output_dataset(pixel_on_e5):
         hists = np.zeros((len(pixel_on_e5.time), hist_mids.size))
 
         coords.update({f'{var}_hist_mids': hist_mids, f'{var}_bins': bins})
-        for lsreg in LS_REGIONS:
+        for lsreg in cu.LS_REGIONS:
             data_vars.update(
                 {
                     f'{lsreg}_{var}_MCS_shield': (('time', f'{var}_hist_mid'), hists.copy()),
@@ -314,6 +314,7 @@ def build_hourly_output_dataset(pixel_on_e5):
 
 
 class PrecursorConditionalERA5HistHourly(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year, month, precursor_time):
         e5inputs, e5proc_shear, e5proc_vimfd, pixel_on_e5_inputs, e5lsm = conditional_inputs(
@@ -370,7 +371,7 @@ class PrecursorConditionalERA5HistHourly(TaskRule):
                 # closure to save space.
                 return np.histogram(data, bins=dsout.coords[f'{var}_bins'].values)[0]
 
-            for var, lsreg in product(e5ds.data_vars.keys(), LS_REGIONS):
+            for var, lsreg in product(e5ds.data_vars.keys(), cu.LS_REGIONS):
                 data = e5ds[var].sel(time=pdtime).values
                 # Calc hists. These 5 regions are mutually exclusive.
                 dsout[f'{lsreg}_{var}_MCS_shield'][i] = hist(data[mcs_shield_mask[i] & lsmask[lsreg]])
@@ -436,7 +437,7 @@ class ConditionalERA5HistHourly(TaskRule):
                 # closure to save space.
                 return np.histogram(data, bins=dsout.coords[f'{var}_bins'].values)[0]
 
-            for var, lsreg in product(e5ds.data_vars.keys(), LS_REGIONS):
+            for var, lsreg in product(e5ds.data_vars.keys(), cu.LS_REGIONS):
                 data = e5ds[var].sel(time=pdtime).values
                 # Calc hists. These 5 regions are mutually exclusive.
                 dsout[f'{lsreg}_{var}_MCS_shield'][i] = hist(data[mcs_shield_mask[i] & lsmask[lsreg]])
@@ -487,7 +488,7 @@ class ConditionalERA5HistHourlyMCSLifecycle(TaskRule):
             hists = np.zeros((len(pixel_on_e5.time), hist_mids.size))
 
             coords.update({f'{var}_hist_mids': hist_mids, f'{var}_bins': bins})
-            for lsreg in LS_REGIONS:
+            for lsreg in cu.LS_REGIONS:
                 for phase in mcs_core_mask_for_phase.keys():
                     data_vars.update(
                         {
@@ -526,7 +527,7 @@ class ConditionalERA5HistHourlyMCSLifecycle(TaskRule):
                 # closure to save space.
                 return np.histogram(data, bins=dsout.coords[f'{var}_bins'].values)[0]
 
-            for var, lsreg in product(e5ds.data_vars.keys(), LS_REGIONS):
+            for var, lsreg in product(e5ds.data_vars.keys(), cu.LS_REGIONS):
                 data = e5ds[var].sel(time=pdtime).values
                 for phase in mcs_core_mask_for_phase.keys():
                     core_mask = mcs_core_mask_for_phase[phase]
@@ -675,7 +676,7 @@ class ConditionalERA5HistMeanfield(TaskRule):
                 # closure to save space.
                 return np.histogram(data, bins=dsout.coords[f'{var}_bins'].values)[0]
 
-            for var, lsreg in product(e5ds.data_vars.keys(), LS_REGIONS):
+            for var, lsreg in product(e5ds.data_vars.keys(), cu.LS_REGIONS):
                 data = e5ds[var].values
                 # Calc hists. These 5 regions are mutually exclusive.
                 dsout[f'{lsreg}_{var}_MCS_shield'][i] = hist(data[mcs_shield_mask[i] & lsmask[lsreg]])

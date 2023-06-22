@@ -3,6 +3,7 @@ import shutil
 from hashlib import sha1
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import psutil
 from mcs_prime import PATHS
@@ -10,13 +11,13 @@ from mcs_prime import PATHS
 # YEARS = list(range(2000, 2021))
 YEARS = [2020]
 MONTHS = range(1, 13)
-# MONTHS = range(1, 2)
+# MONTHS = [2]
 
 RADII = [1, 100, 200, 500, 1000]
 
 ERA5VARS = ['cape', 'tcwv']
-SHEAR_ERA5VARS = ['LLS_shear', 'L2M_shear', 'MLS_shear']
-VIMFD_ERA5VARS = ['vimfd']
+SHEAR_ERA5VARS = ['shear_0', 'shear_1', 'shear_2']
+VIMFD_ERA5VARS = ['vertically_integrated_moisture_flux_div']
 PROC_ERA5VARS = SHEAR_ERA5VARS + VIMFD_ERA5VARS
 EXTENDED_ERA5VARS = ERA5VARS + PROC_ERA5VARS
 
@@ -24,7 +25,7 @@ LS_REGIONS = ['all', 'land', 'ocean']
 
 DATES = pd.date_range(f'{YEARS[0]}-01-01', f'{YEARS[-1]}-12-31')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
-DATE_MONTH_KEYS = [(y, m) for y in YEARS for m in MONTHS]
+YEARS_MONTHS = [(y, m) for y in YEARS for m in MONTHS]
 
 PATH_ERA5_MODEL_LEVELS = PATHS['datadir'] / 'ERA5/ERA5_L137_model_levels_table.csv'
 PATH_REGRIDDER = PATHS['outdir'] / 'conditional_era5_histograms' / 'regridder' / 'bilinear_1200x3600_481x1440_peri.nc'
@@ -201,12 +202,12 @@ def gen_era5_times_for_month(year, month, include_precursor_offset=True):
     start = pd.Timestamp(year, month, 1)
     end = start + pd.DateOffset(months=1) - pd.Timedelta(hours=1)
     # Make sure there are enough precursor values.
-    if include_precursor_offset and year == 2020 and month == 1:
-        start -= pd.Timedelta(hours=6)
+    # if include_precursor_offset and year == 2020 and month == 1:
+    #     start -= pd.Timedelta(hours=6)
     # This is the final year - I need to make sure that
     # the first ERA5 file for 2021 is also made for e.g. CalcERA5Shear.
-    if year == 2020 and month == 12:
-        end += pd.Timedelta(hours=1)
+    # if year == 2020 and month == 12:
+    #     end += pd.Timedelta(hours=1)
     e5times = pd.date_range(start, end, freq='H')
     return e5times
 
@@ -254,9 +255,9 @@ def get_bins(var):
         bins = np.linspace(0, 5000, 101)
     elif var == 'tcwv':
         bins = np.linspace(0, 100, 101)
-    elif var[-5:] == 'shear':
+    elif var.startswith('shear'):
         bins = np.linspace(0, 100, 101)
-    elif var == 'vimfd':
+    elif var == 'vertically_integrated_moisture_flux_div':
         bins = np.linspace(-2e-3, 2e-3, 101)
     hist_mids = (bins[1:] + bins[:-1]) / 2
     return bins, hist_mids

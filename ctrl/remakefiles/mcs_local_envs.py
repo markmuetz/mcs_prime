@@ -1,4 +1,3 @@
-import datetime as dt
 from itertools import product
 from timeit import default_timer as timer
 
@@ -28,6 +27,23 @@ TODOS
 * Units on data vars etc.
 '''
 print(TODOS)
+
+
+def load_e5_data(logger, e5times, inputs):
+    mcs_times = e5times[:-1] + pd.Timedelta(minutes=30)
+
+    e5paths = [inputs[f'era5_{t}_{v}'] for t in e5times for v in cu.ERA5VARS]
+    e5proc_shear_paths = [inputs[f'shear_{t}'] for t in e5times]
+    e5proc_vimfd_paths = [inputs[f'vimfd_{t}'] for t in e5times]
+
+    logger.debug('Open ERA5')
+    e5ds = xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60)).interp(time=mcs_times)
+    logger.debug('Open proc shear')
+    e5shear = xr.open_mfdataset(e5proc_shear_paths).interp(time=mcs_times)
+    logger.debug('Open proc VIMFD')
+    e5vimfd = xr.open_mfdataset(e5proc_vimfd_paths).interp(time=mcs_times)
+
+    return xr.merge([e5ds.load(), e5shear.load(), e5vimfd.load()])
 
 
 class GenLatLonDistance(TaskRule):
@@ -109,16 +125,24 @@ class CheckLatLonDistance(TaskRule):
 class McsLocalEnv(TaskRule):
     @staticmethod
     def rule_inputs(year, month, day, mode):
-        start = dt.datetime(year, month, day)
+        start = pd.Timestamp(year, month, day)
         # Note there are 25 of these so I can get ERA5 data on the hour either side
         # of MCS dataset data (on the half hour).
-        e5times = pd.date_range(start, start + dt.timedelta(days=1), freq='H')
+        e5times = pd.date_range(start, start + pd.Timedelta(days=1), freq='H')
 
         inputs = {
             f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5_SFC, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
             for t in e5times
             for var in cu.ERA5VARS
         }
+        inputs.update({
+            f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR, year=t.year, month=t.month, day=t.day, hour=t.hour)
+            for t in e5times
+        })
+        inputs.update({
+            f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
+            for t in e5times
+        })
 
         inputs['tracks'] = cu.fmt_mcs_stats_path(year)
         inputs['dists'] = cu.PATH_LAT_LON_DISTS
@@ -134,28 +158,23 @@ class McsLocalEnv(TaskRule):
 
     def rule_run(self):
         tracks = McsTracks.open(self.inputs['tracks'], None)
-
         dists = xr.load_dataarray(self.inputs['dists'])
 
-        start = dt.datetime(self.year, self.month, self.day)
+        start = pd.Timestamp(self.year, self.month, self.day)
         # Note there are 25 of these so I can get ERA5 data on the hour either side
         # of MCS dataset data (on the half hour).
-        e5times = pd.date_range(start, start + dt.timedelta(days=1), freq='H')
-
-        mcs_start = dt.datetime(self.year, self.month, self.day, 0, 30)
+        e5times = pd.date_range(start, start + pd.Timedelta(days=1), freq='H')
         # 24 of these on the half hour.
-        mcs_times = pd.date_range(mcs_start, mcs_start + dt.timedelta(hours=23), freq='H')
+        mcs_times = e5times[:-1] + pd.Timedelta(minutes=30)
 
-        e5paths = [self.inputs[f'era5_{t}_{v}'] for t in e5times for v in cu.ERA5VARS]
-        # Interp to MCS times (on the half hour).
-        e5ds = xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60)).interp(time=mcs_times).load()
+        e5ds = load_e5_data(self.logger, e5times, self.inputs)
 
         data_vars = {}
         blank_data = np.zeros((1, len(cu.RADII), len(e5ds.latitude), len(e5ds.longitude)))
-        for v in cu.ERA5VARS:
-            # Give both arrayes a time dimention with the mean MCS time for easier combining of files.
-            data_vars[f'{v}'] = (('time', 'latitude', 'longitude'), e5ds[v].mean(dim='time').values[None, :, :])
-            data_vars[f'mcs_local_{v}'] = (('time', 'radius', 'latitude', 'longitude'), blank_data.copy())
+        for var in cu.EXTENDED_ERA5VARS:
+            # Give  arrays a time dimension with the mean MCS time for easier combining of files.
+            data_vars[f'{var}'] = (('time', 'latitude', 'longitude'), e5ds[var].mean(dim='time').values[None, :, :])
+            data_vars[f'mcs_local_{var}'] = (('time', 'radius', 'latitude', 'longitude'), blank_data.copy())
         data_vars['dist_mask_sum'] = (('time', 'radius', 'latitude', 'longitude'), blank_data.copy().astype(int))
 
         dsout = xr.Dataset(
@@ -171,8 +190,8 @@ class McsLocalEnv(TaskRule):
         print(dsout)
 
         mcs_local_vars = {}
-        for v in cu.ERA5VARS:
-            mcs_local_vars[v] = []
+        for var in cu.EXTENDED_ERA5VARS:
+            mcs_local_vars[var] = []
 
         for pdtime in mcs_times:
             print(pdtime)
@@ -199,20 +218,20 @@ class McsLocalEnv(TaskRule):
 
             dsout.dist_mask_sum[0, :, :, :].values += mcs_local_mask.astype(int)
 
-            for v in cu.ERA5VARS:
+            for var in cu.EXTENDED_ERA5VARS:
                 # Broadcast variable into correct shape for applying masks at different radii.
-                mcs_local_var = np.ones(len(cu.RADII))[:, None, None] * np.copy(e5data[v].values)[None, :, :]
+                mcs_local_var = np.ones(len(cu.RADII))[:, None, None] * np.copy(e5data[var].values)[None, :, :]
                 mcs_local_var[~mcs_local_mask] = np.nan
-                mcs_local_vars[v].append(mcs_local_var)
+                mcs_local_vars[var].append(mcs_local_var)
 
-        for v in cu.ERA5VARS:
-            # mcs_local_vars[v] is a list of arrays. List is time dim. Convert to
+        for var in cu.EXTENDED_ERA5VARS:
+            # mcs_local_vars[var] is a list of arrays. List is time dim. Convert to
             # array with shape (ntime, nradius, nlat, nlon).
-            data = np.array(mcs_local_vars[v])
+            data = np.array(mcs_local_vars[var])
             assert data.shape == (len(mcs_times), len(cu.RADII), len(e5ds.latitude), len(e5ds.longitude))
             # Collapse on the time dimension, then give arrage a time dimension with
             # the mean MCS time for easier combining of files.
-            dsout[f'mcs_local_{v}'].values = np.nanmean(data, axis=0)[None, :, :, :]
+            dsout[f'mcs_local_{var}'].values = np.nanmean(data, axis=0)[None, :, :, :]
 
         # TODO: set encoding of dist_mask_sum to int.
         dsout.to_netcdf(self.outputs['mcs_local_env'])
@@ -233,6 +252,14 @@ class LifecycleMcsLocalEnvHist(TaskRule):
             for t in e5times
             for var in cu.ERA5VARS
         }
+        inputs.update({
+            f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR, year=t.year, month=t.month, day=t.day, hour=t.hour)
+            for t in e5times
+        })
+        inputs.update({
+            f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
+            for t in e5times
+        })
 
         inputs['tracks'] = cu.fmt_mcs_stats_path(year)
         inputs['dists'] = cu.PATH_LAT_LON_DISTS
@@ -252,9 +279,6 @@ class LifecycleMcsLocalEnvHist(TaskRule):
         # to account for latest possible time in tracks dataset (400 hours)
         end = start + pd.DateOffset(months=1) + pd.Timedelta(hours=401)
         e5times = pd.date_range(start, end, freq='H')
-        mcs_times = e5times[:-1] + pd.Timedelta(minutes=30)
-
-        e5paths = [self.inputs[f'era5_{t}_{var}'] for t in e5times for var in cu.ERA5VARS]
 
         # This is not the most memory-efficient way of doing this.
         # BUT it allows me to load all the data once, and then access
@@ -263,7 +287,7 @@ class LifecycleMcsLocalEnvHist(TaskRule):
         # E.g. the last time will only be used if there is a duration=400h
         # MCS (unlikely).
         # Normal trick of interpolating to mcs_times.
-        e5ds = xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60)).interp(time=mcs_times).load()
+        e5ds = load_e5_data(self.logger, e5times, self.inputs)
 
         tracks = McsTracks.open(self.inputs['tracks'], None)
         time = pd.DatetimeIndex(tracks.dstracks.start_basetime)
@@ -282,7 +306,7 @@ class LifecycleMcsLocalEnvHist(TaskRule):
         data_vars = {}
 
         coords['percentile'] = percentiles
-        for var in cu.ERA5VARS:
+        for var in cu.EXTENDED_ERA5VARS:
             bins, hist_mids = cu.get_bins(var)
             coords.update({f'{var}_hist_mids': hist_mids, f'{var}_bins': bins})
             # Starts off as np.nan.
@@ -330,7 +354,7 @@ class LifecycleMcsLocalEnvHist(TaskRule):
                 lat_idx, lon_idx, dist = get_dist(dists, lat, lon)
                 for j, r in enumerate(cu.RADII):
                     dist_mask = dist < r
-                    for var in cu.ERA5VARS:
+                    for var in cu.EXTENDED_ERA5VARS:
                         bins = dsout[f'{var}_bins'].values
                         # Go ahead and compute histogram.
                         # Note, to index the times dim, I need to add 24 to i (starts at -24).
@@ -355,9 +379,9 @@ class CheckMcsLocalEnv(TaskRule):
         tracks = McsTracks.open(self.inputs['tracks'], None)
         mcs_local_env = xr.open_dataset(self.inputs['mcs_local_env']).sel(radius=self.radius)
 
-        mcs_start = dt.datetime(2020, 1, 1, 0, 30)
+        mcs_start = pd.Timestamp(2020, 1, 1, 0, 30)
         # 24 of these on the half hour.
-        mcs_times = pd.date_range(mcs_start, mcs_start + dt.timedelta(hours=23), freq='H')
+        mcs_times = pd.date_range(mcs_start, mcs_start + pd.Timedelta(hours=23), freq='H')
 
         fig, ax = plt.subplots(
             1,
@@ -399,7 +423,7 @@ class CombineMonthlyMcsLocalEnv(TaskRule):
     rule_outputs = {'mcs_local_env': cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV}
 
     var_matrix = {
-        ('year', 'month'): cu.DATE_MONTH_KEYS,
+        ('year', 'month'): cu.YEARS_MONTHS,
         'mode': ['init', 'lifecycle'],
     }
 

@@ -5,7 +5,7 @@ from mcs_prime import PATHS
 from remake import Remake, TaskRule
 from remake.util import format_path as fmtp
 
-YEARS = list(range(2000, 2021))
+import config_utils as cu
 
 slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 32000}
 era5_histograms_plotting = Remake(config=dict(slurm=slurm_config, content_checks=False))
@@ -98,20 +98,24 @@ def plot_hists_for_var(ds, var):
 
 
 class PlotCombineConditionalERA5Hist(TaskRule):
-    rule_inputs = {
-        f'hist_{year}': (PATHS['outdir'] / 'conditional_era5_histograms' / f'{year}' / f'yearly_hist_{year}.nc')
-        for year in YEARS
-    }
+    def rule_inputs(year, core_method):
+        inputs = {
+            f'hist_{year}': fmtp(cu.FMT_PATH_COND_HIST_HOURLY, year=year, month=month, core_method=core_method)
+            for month in cu.MONTHS
+        }
+        return inputs
     rule_outputs = {
-        'cape': (PATHS['figdir'] / 'conditional_era5_histograms' / 'yearly_hist_cape.png'),
-        'tcwv': (PATHS['figdir'] / 'conditional_era5_histograms' / 'yearly_hist_tcwv.png'),
+        f'fig_{var}': (PATHS['figdir'] / 'conditional_era5_histograms' / f'yearly_hist_{var}_{{year}}_{{core_method}}.png')
+        for var in cu.EXTENDED_ERA5VARS
     }
     depends_on = [plot_hist, plot_hist_probs, plot_hists_for_var]
+
+    var_matrix = {'year': cu.YEARS, 'core_method': ['tb', 'precip']}
 
     def rule_run(self):
         with xr.open_mfdataset(self.inputs.values()) as ds:
             print(ds)
 
-            for var in ['cape', 'tcwv']:
+            for var in cu.EXTENDED_ERA5VARS:
                 plot_hists_for_var(ds, var)
-                plt.savefig(self.outputs[var])
+                plt.savefig(self.outputs[f'fig_{var}'])

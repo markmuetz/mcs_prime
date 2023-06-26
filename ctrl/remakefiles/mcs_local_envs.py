@@ -179,7 +179,7 @@ class McsLocalEnv(TaskRule):
             # Give  arrays a time dimension with the mean MCS time for easier combining of files.
             data_vars[f'{var}'] = (('time', 'latitude', 'longitude'), e5ds[var].mean(dim='time').values[None, :, :])
             data_vars[f'mcs_local_{var}'] = (('time', 'radius', 'latitude', 'longitude'), blank_data.copy())
-        data_vars['dist_mask_sum'] = (('time', 'radius', 'latitude', 'longitude'), blank_data.copy().astype(int))
+        data_vars['dist_mask_sum'] = (('time', 'radius', 'latitude', 'longitude'), blank_data.copy())
 
         dsout = xr.Dataset(
             data_vars=data_vars,
@@ -220,7 +220,8 @@ class McsLocalEnv(TaskRule):
                     dist_mask = dist < r
                     mcs_local_mask[i, :, :] |= dist_mask
 
-            dsout.dist_mask_sum[0, :, :, :].values += mcs_local_mask.astype(int)
+            dsout.dist_mask_sum[0, :, :, :].values += mcs_local_mask.astype(float)
+            print(pdtime, dsout.dist_mask_sum.values.max())
 
             for var in cu.EXTENDED_ERA5VARS:
                 # Broadcast variable into correct shape for applying masks at different radii.
@@ -238,7 +239,7 @@ class McsLocalEnv(TaskRule):
             dsout[f'mcs_local_{var}'].values = np.nanmean(data, axis=0)[None, :, :, :]
 
         # TODO: set encoding of dist_mask_sum to int.
-        dsout.to_netcdf(self.outputs['mcs_local_env'])
+        cu.to_netcdf_tmp_then_copy(dsout, self.outputs['mcs_local_env'])
 
 
 class LifecycleMcsLocalEnvHist(TaskRule):
@@ -280,6 +281,7 @@ class LifecycleMcsLocalEnvHist(TaskRule):
         'year': cu.YEARS,
         'month': cu.MONTHS,
     }
+    config = {'slurm': {'mem': 256000, 'partition': 'high-mem'}}
 
     def rule_run(self):
         # Start from first precursor time.
@@ -438,9 +440,14 @@ class CombineMonthlyMcsLocalEnv(TaskRule):
     def rule_run(self):
         paths = self.inputs.values()
         ds = xr.open_mfdataset(paths)
+        dist_mask_sum = ds.dist_mask_sum.sum(dim='time').values
 
+        ntimes = len(ds.time)
         dsout = ds.mean(dim='time').load()
+        # This needs to be a sum, not a mean.
+        dsout.dist_mask_sum.values = dist_mask_sum
         dsout = dsout.expand_dims({'time': 1})
         dsout = dsout.assign_coords({'time': [pd.Timestamp(ds.time.mean().item())]})
+        dsout.attrs[f'ntimes_{self.year}_{self.month:02d}'] = ntimes
 
-        dsout.to_netcdf(self.outputs['mcs_local_env'])
+        cu.to_netcdf_tmp_then_copy(dsout, self.outputs['mcs_local_env'])

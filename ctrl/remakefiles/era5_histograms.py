@@ -669,8 +669,8 @@ class ConditionalERA5HistMeanfield(TaskRule):
                 # closure to save space.
                 return np.histogram(data, bins=dsout.coords[f'{var}_bins'].values)[0]
 
-            for var, lsreg in product(e5ds.data_vars.keys(), cu.LS_REGIONS):
-                data = e5ds[var].values
+            for var, lsreg in product(e5meanfield.data_vars.keys(), cu.LS_REGIONS):
+                data = e5meanfield[var].values
                 # Calc hists. These 5 regions are mutually exclusive.
                 dsout[f'{lsreg}_{var}_MCS_shield'][i] = hist(data[mcs_shield_mask[i] & lsmask[lsreg]])
                 dsout[f'{lsreg}_{var}_MCS_core'][i] = hist(data[mcs_core_mask[i] & lsmask[lsreg]])

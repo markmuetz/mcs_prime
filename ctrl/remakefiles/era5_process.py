@@ -6,7 +6,7 @@ from mcs_prime.era5_calc import ERA5Calc
 from remake import Remake, TaskRule
 from remake.util import format_path as fmtp
 
-import config_utils as cu
+import mcs_prime.mcs_prime_config_util as cu
 
 TODOS = '''
 TODOS

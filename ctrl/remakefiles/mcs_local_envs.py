@@ -11,7 +11,7 @@ from mcs_prime import PATHS, McsTracks, PixelData
 from remake import Remake, TaskRule
 from remake.util import format_path as fmtp
 
-import config_utils as cu
+import mcs_prime.mcs_prime_config_util as cu
 
 # slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '10:00:00'}
 slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 32000}

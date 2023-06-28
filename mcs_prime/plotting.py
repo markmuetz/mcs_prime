@@ -10,7 +10,7 @@ from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 
-from .mcs_prime_config import status_dict
+from .mcs_prime_config_util import STATUS_DICT
 
 
 def round_away_from_zero_to_sigfig(val, nsf):
@@ -228,7 +228,7 @@ def animate_track(
             figpaths.append(figpath)
         else:
             plt.pause(1)
-            print(status, status_dict[status])
+            print(status, STATUS_DICT[status])
             if user_input != "c":
                 user_input = input("c for continue, q to quit, p for prev, <enter> for step: ")
                 if user_input == "q":

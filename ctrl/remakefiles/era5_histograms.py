@@ -8,7 +8,8 @@ from mcs_prime import McsTracks
 from remake import Remake, TaskRule
 from remake.util import format_path as fmtp
 
-import config_utils as cu
+import mcs_prime.mcs_prime_config_util as cu
+from mcs_prime.mcs_prime_config_util import gen_region_masks
 
 TODOS = '''
 TODOS
@@ -117,87 +118,6 @@ def conditional_load_data(logger, year, month, inputs, precursor_time=0):
 def conditional_load_meanfield_data(logger, inputs):
     e5meanfield = xr.open_mfdataset([v for k, v in inputs.items() if k.startswith('era5_')])
     return e5meanfield.mean(dim='time').load()
-
-
-def load_lsmask(path):
-    lsmask = {}
-    for lsreg in cu.LS_REGIONS:
-        # Build appropriate land-sea mask for region.
-        da_lsmask = xr.load_dataarray(path)
-        if lsreg == 'all':
-            # All ones.
-            lsmask['all'] = da_lsmask[0].sel(latitude=slice(60, -60)).values >= 0
-        elif lsreg == 'land':
-            # LSM has land == 1.
-            lsmask['land'] = da_lsmask[0].sel(latitude=slice(60, -60)).values > 0.5
-        elif lsreg == 'ocean':
-            # LSM has ocean == 0.
-            lsmask['ocean'] = da_lsmask[0].sel(latitude=slice(60, -60)).values <= 0.5
-        else:
-            raise ValueError(f'Unknown region: {lsreg}')
-    return lsmask
-
-
-def gen_region_masks(logger, pixel_on_e5, tracks, core_method='tb'):
-    mcs_core_shield_mask = []
-    # Looping over subset of times.
-    for i, time in enumerate(pixel_on_e5.time.values):
-        pdtime = pd.Timestamp(time)
-        time = pdtime.to_pydatetime()
-        if pdtime.hour == 0:
-            print(time)
-
-        # Get cloudnumbers (cns) for tracks at given time.
-        ts = tracks.tracks_at_time(time)
-        # tmask is a 2d mask that spans multiple tracks, getting
-        # the cloudnumbers at *one time only*, that can be
-        # used to get cloudnumbers.
-        tmask = (ts.dstracks.base_time == pdtime).values
-        if tmask.sum() == 0:
-            logger.info(f'No times matched in tracks DB for {pdtime}')
-            cns = np.array([])
-        else:
-            # Each cloudnumber can be used to link to the corresponding
-            # cloud in the pixel data.
-            cns = ts.dstracks.cloudnumber.values[tmask]
-            # Nicer to have sorted values.
-            cns.sort()
-
-        # Tracked MCS shield (N.B. close to Tb < 241K but expanded by precip regions).
-        # INCLUDES CONV CORE.
-        mcs_core_shield_mask.append(pixel_on_e5.cloudnumber[i].isin(cns).values)
-
-    mcs_core_shield_mask = np.array(mcs_core_shield_mask)
-    if core_method == 'tb':
-        # Convective core Tb < 225K.
-        core_mask = pixel_on_e5.tb.values < 225
-    elif core_method == 'precip':
-        core_mask = pixel_on_e5.precipitation.values > 2  # mm/hr
-    # Non-MCS clouds (Tb < 241K). INCLUDES CONV CORE.
-    # OPERATOR PRECEDENCE! Brackets are vital here.
-    cloud_core_shield_mask = (pixel_on_e5.cloudnumber.values > 0) & ~mcs_core_shield_mask
-    # MCS conv core only.
-    mcs_core_mask = mcs_core_shield_mask & core_mask
-    # Cloud conv core only.
-    cloud_core_mask = cloud_core_shield_mask & core_mask
-    # Env is everything outside of these two regions.
-    env_mask = ~mcs_core_shield_mask & ~cloud_core_shield_mask
-
-    # Remove conv core from shields.
-    mcs_shield_mask = mcs_core_shield_mask & ~mcs_core_mask
-    cloud_shield_mask = cloud_core_shield_mask & ~cloud_core_mask
-
-    # Verify mutual exclusivity and that all points are covered.
-    assert (
-        mcs_core_mask.astype(int)
-        + mcs_shield_mask.astype(int)
-        + cloud_core_mask.astype(int)
-        + cloud_shield_mask.astype(int)
-        + env_mask.astype(int)
-        == 1
-    ).all()
-
-    return mcs_core_mask, mcs_shield_mask, cloud_core_mask, cloud_shield_mask, env_mask
 
 
 def calc_frac_growth(dstracks):
@@ -333,7 +253,7 @@ class PrecursorConditionalERA5HistHourly(TaskRule):
     depends_on = [
         conditional_load_mcs_data,
         conditional_load_data,
-        load_lsmask,
+        cu.load_lsmask,
         build_hourly_output_dataset,
         cu.get_bins,
         gen_region_masks,
@@ -344,7 +264,7 @@ class PrecursorConditionalERA5HistHourly(TaskRule):
         tracks, pixel_on_e5, e5ds = conditional_load_data(
             self.logger, self.year, self.month, self.inputs, self.precursor_time
         )
-        lsmask = load_lsmask(self.inputs['ERA5_land_sea_mask'])
+        lsmask = cu.load_lsmask(self.inputs['ERA5_land_sea_mask'])
 
         self.logger.info('Build output datasets')
         dsout = build_hourly_output_dataset(pixel_on_e5)
@@ -401,7 +321,7 @@ class ConditionalERA5HistHourly(TaskRule):
     depends_on = [
         conditional_load_mcs_data,
         conditional_load_data,
-        load_lsmask,
+        cu.load_lsmask,
         build_hourly_output_dataset,
         cu.get_bins,
         gen_region_masks,
@@ -410,7 +330,7 @@ class ConditionalERA5HistHourly(TaskRule):
     def rule_run(self):
         self.logger.info('Load data')
         tracks, pixel_on_e5, e5ds = conditional_load_data(self.logger, self.year, self.month, self.inputs)
-        lsmask = load_lsmask(self.inputs['ERA5_land_sea_mask'])
+        lsmask = cu.load_lsmask(self.inputs['ERA5_land_sea_mask'])
 
         self.logger.info('Build output datasets')
         dsout = build_hourly_output_dataset(pixel_on_e5)
@@ -466,7 +386,7 @@ class ConditionalERA5HistHourlyMCSLifecycle(TaskRule):
     depends_on = [
         conditional_load_mcs_data,
         conditional_load_data,
-        load_lsmask,
+        cu.load_lsmask,
         build_hourly_output_dataset,
         cu.get_bins,
         gen_mcs_lifecycle_region_masks,
@@ -500,7 +420,7 @@ class ConditionalERA5HistHourlyMCSLifecycle(TaskRule):
     def rule_run(self):
         self.logger.info('Load data')
         tracks, pixel_on_e5, e5ds = conditional_load_data(self.logger, self.year, self.month, self.inputs)
-        lsmask = load_lsmask(self.inputs['ERA5_land_sea_mask'])
+        lsmask = cu.load_lsmask(self.inputs['ERA5_land_sea_mask'])
 
         self.logger.info('Generate region masks')
         (mcs_core_mask_for_phase, mcs_shield_mask_for_phase) = gen_mcs_lifecycle_region_masks(
@@ -552,7 +472,7 @@ class ConditionalERA5HistGridpoint(TaskRule):
         'month': cu.MONTHS,
     }
 
-    depends_on = [conditional_load_mcs_data, conditional_load_data, load_lsmask, cu.get_bins, gen_region_masks]
+    depends_on = [conditional_load_mcs_data, conditional_load_data, cu.load_lsmask, cu.get_bins, gen_region_masks]
 
     def build_gridpoint_output_dataset(self, pixel_on_e5):
         # Build inputs to Dataset
@@ -649,7 +569,7 @@ class ConditionalERA5HistMeanfield(TaskRule):
             self.logger,
             self.inputs,
         )
-        lsmask = load_lsmask(self.inputs['ERA5_land_sea_mask'])
+        lsmask = cu.load_lsmask(self.inputs['ERA5_land_sea_mask'])
 
         self.logger.info('Build output datasets')
         dsout = build_hourly_output_dataset(pixel_on_e5)

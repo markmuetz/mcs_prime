@@ -10,8 +10,7 @@ import shapely.geometry
 import shapely.ops
 import xarray as xr
 
-from .util import round_times_to_nearest_second
-from .mcs_prime_config import PATHS
+from .mcs_prime_config_util import PATHS, round_times_to_nearest_second
 
 
 def _create_fig_ax():

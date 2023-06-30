@@ -26,6 +26,8 @@ slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '20:00:00'
 # slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 64000}
 era5_histograms = Remake(config=dict(slurm=slurm_config, content_checks=False, no_check_input_exist=True))
 
+pixel_inputs_cache = cu.PixelInputsCache()
+
 
 def conditional_inputs(year, month, precursor_time=0):
     start = pd.Timestamp(year, month, 1)
@@ -41,7 +43,7 @@ def conditional_inputs(year, month, precursor_time=0):
     # exists. But I now need to do for one month.
     pixel_on_e5_inputs = {}
     for daily_pixel_time in daily_pixel_times:
-        pixel_times, pixel_inputs = cu.pixel_inputs_cache.all_pixel_inputs[
+        pixel_times, pixel_inputs = pixel_inputs_cache.all_pixel_inputs[
             (daily_pixel_time.year, daily_pixel_time.month, daily_pixel_time.day)
         ]
         pixel_output_paths = [

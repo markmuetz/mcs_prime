@@ -23,8 +23,18 @@ print(TODOS)
 slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '20:00:00'}
 era5_process = Remake(config=dict(slurm=slurm_config, content_checks=False, no_check_input_exist=True))
 
+pixel_inputs_cache = cu.PixelInputsCache()
+
+# Extend years/months for shear, VIMDF because I need to have the first value preceding/following
+# each year for interp to MCS times (ERA5 on the hour, MCS on the half hour).
+EXTENDED_YEARS_MONTHS = []
+for y in cu.YEARS:
+    EXTENDED_YEARS_MONTHS.extend([*[(y - 1, 12)], *[(y, m) for m in cu.MONTHS], *[(y + 1, 1)]])
+EXTENDED_YEARS_MONTHS = sorted(set(EXTENDED_YEARS_MONTHS))
+
 
 class GenRegridder(TaskRule):
+    enabled = False
     """Generate a xesmf regridder for regridding/coarsening from MCS dataset to ERA5 grid."""
 
     rule_inputs = {
@@ -70,7 +80,7 @@ class CalcERA5Shear(TaskRule):
         return outputs
 
     var_matrix = {
-        ('year', 'month'): [(2019, 12)] + cu.YEARS_MONTHS + [(2021, 1)],
+        ('year', 'month'): EXTENDED_YEARS_MONTHS,
     }
 
     def rule_run(self):
@@ -155,10 +165,11 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
+        fmt = cu.FMT_PATH_ERA5_ML if year not in range(2000, 2006) else cu.FMT_PATH_ERA51_ML
         e5inputs = {
-            f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5_ML, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
-            for var in ['u', 'v', 't', 'q', 'lnsp']
+            f'era5_{t}_{var}': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
             for t in e5times
+            for var in ['u', 'v', 't', 'q', 'lnsp']
         }
         e5inputs['model_levels'] = cu.PATH_ERA5_MODEL_LEVELS
         return e5inputs
@@ -173,7 +184,7 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
         return outputs
 
     var_matrix = {
-        ('year', 'month'): [(2019, 12)] + cu.YEARS_MONTHS + [(2021, 1)],
+        ('year', 'month'): EXTENDED_YEARS_MONTHS,
     }
 
     depends_on = [ERA5Calc, calc_mf_u, calc_mf_v, calc_div_mf]
@@ -235,6 +246,7 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
 
 
 class GenPixelDataOnERA5Grid(TaskRule):
+    enabled = False
     """Generate ERA5 pixel data by regridding native MCS dataset masks/cloudnumbers
 
     The MCS dataset pixel-level data has a field cloudnumber, which maps onto the
@@ -262,7 +274,7 @@ class GenPixelDataOnERA5Grid(TaskRule):
         e5inputs = {'cape': fmtp(cu.FMT_PATH_ERA5_SFC, year=2020, month=1, day=1, hour=0, var='cape')}
 
         # Not all files exist! Do not include those that don't.
-        pixel_times, pixel_inputs = cu.pixel_inputs_cache.all_pixel_inputs[(year, month, day)]
+        pixel_times, pixel_inputs = pixel_inputs_cache.all_pixel_inputs[(year, month, day)]
         inputs = {**e5inputs, **pixel_inputs}
 
         inputs['regridder'] = GenRegridder.rule_outputs['regridder']
@@ -270,7 +282,7 @@ class GenPixelDataOnERA5Grid(TaskRule):
 
     @staticmethod
     def rule_outputs(year, month, day):
-        pixel_times, pixel_inputs = cu.pixel_inputs_cache.all_pixel_inputs[(year, month, day)]
+        pixel_times, pixel_inputs = pixel_inputs_cache.all_pixel_inputs[(year, month, day)]
         pixel_output_paths = [
             fmtp(cu.FMT_PATH_PIXEL_ON_ERA5, year=t.year, month=t.month, day=t.day, hour=t.hour) for t in pixel_times
         ]
@@ -358,6 +370,7 @@ class GenPixelDataOnERA5Grid(TaskRule):
 
 
 class CalcERA5MeanField(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year, month):
         # start = pd.Timestamp(year, month, 1)

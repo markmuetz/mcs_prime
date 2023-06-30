@@ -16,7 +16,7 @@ def get_labels(var):
     labels = {
         'cape': 'CAPE (J kg$^{-1}$)',
         'tcwv': 'TCWV (mm)',
-        'vertically_integrated_moisture_flux_div': 'VIMFD (kg m$^{-2} s$^{-1})',
+        'vertically_integrated_moisture_flux_div': 'VIMFD (kg m$^{-2}$ s$^{-1}$)',
         'shear_0': 'LLS (m s$^{-1}$)',
         'shear_1': 'L2MS (m s$^{-1}$)',
         'shear_2': 'MLS (m s$^{-1}$)',
@@ -35,19 +35,22 @@ def plot_hist(ds, ax=None, reg='all', var='cape', s=None, log=True):
         bins = ds[f'{var}_bins'].values
         width = bins[1] - bins[0]
         h_density = h / (h.sum() * width)
-        ax.plot(ds[f'{var}_hist_mids'].values[s], h_density[s], fmt, label=title)
+        if var == 'vertically_integrated_moisture_flux_div':
+            ax.plot(ds[f'{var}_hist_mids'].values[s] * 1e4, h_density[s], fmt, label=title)
+        else:
+            ax.plot(ds[f'{var}_hist_mids'].values[s], h_density[s], fmt, label=title)
 
-    ax.set_title(f'{var.upper()} distributions')
+    # ax.set_title(f'{var.upper()} distributions')
     _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_MCS_core'].values, axis=0), 'r-', 'MCS core')
     _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_MCS_shield'].values, axis=0), 'r--', 'MCS shield')
     _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_cloud_core'].values, axis=0), 'b-', 'cloud core')
     _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_cloud_shield'].values, axis=0), 'b--', 'cloud shield')
     _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_env'].values, axis=0), 'k-', 'env')
-    ax.legend()
+    # ax.legend()
     if log:
         ax.set_yscale('log')
 
-    ax.set_xlabel(get_labels(var))
+    # ax.set_xlabel(get_labels(var))
 
 
 def plot_hist_probs(ds, ax=None, reg='all', var='cape', s=None):
@@ -65,15 +68,17 @@ def plot_hist_probs(ds, ax=None, reg='all', var='cape', s=None):
     counts[4] = np.nansum(ds[f'{reg}_{var}_env'].values, axis=0)
     probs = counts / counts.sum(axis=0)[None, :]
 
-    ax.set_title(f'{var.upper()} probabilities')
-    ax.plot(ds[f'{var}_hist_mids'].values[s], probs[0][s], 'r-', label='MCS core')
-    ax.plot(ds[f'{var}_hist_mids'].values[s], probs[1][s], 'r--', label='MCS shield')
-    ax.plot(ds[f'{var}_hist_mids'].values[s], probs[2][s], 'b-', label='cloud core')
-    ax.plot(ds[f'{var}_hist_mids'].values[s], probs[3][s], 'b--', label='cloud shield')
-    ax.plot(ds[f'{var}_hist_mids'].values[s], probs[4][s], 'k-', label='env')
-    ax.legend()
-
-    ax.set_xlabel(get_labels(var))
+    if var == 'vertically_integrated_moisture_flux_div':
+        x = ds[f'{var}_hist_mids'].values[s] * 1e4
+    else:
+        x = ds[f'{var}_hist_mids'].values[s]
+    # ax.set_title(f'{var.upper()} probabilities')
+    ax.plot(x, probs[0][s], 'r-', label='MCS core')
+    ax.plot(x, probs[1][s], 'r--', label='MCS shield')
+    ax.plot(x, probs[2][s], 'b-', label='cloud core')
+    ax.plot(x, probs[3][s], 'b--', label='cloud shield')
+    ax.plot(x, probs[4][s], 'k-', label='env')
+    # ax.legend()
 
 
 def plot_hists_for_var(ds, var):
@@ -106,6 +111,7 @@ def plot_hists_for_var(ds, var):
 
 
 class PlotCombineConditionalERA5Hist(TaskRule):
+    @staticmethod
     def rule_inputs(year, core_method):
         inputs = {
             f'hist_{year}_{month}': fmtp(cu.FMT_PATH_COND_HIST_HOURLY, year=year, month=month, core_method=core_method)
@@ -130,6 +136,77 @@ class PlotCombineConditionalERA5Hist(TaskRule):
                 print(var)
                 plot_hists_for_var(ds, var)
                 plt.savefig(self.outputs[f'fig_{var}'])
+
+
+def plot_combined_hists_for_var(ax0, ax1, ds, var):
+    xlim_ylim_title = {
+        'cape': ((0, 2500), (0, 0.0014), 'CAPE'),
+        'tcwv': ((None, None), (0, 0.08), 'TCWV'),
+        'shear_0': ((None, None), (None, None), 'LLS'),
+        'shear_1': ((None, None), (None, None), 'L2MS'),
+        'shear_2': ((None, None), (None, None), 'MLS'),
+        'vertically_integrated_moisture_flux_div': ((None, None), (None, None), 'VIMFD'),
+    }
+
+    plot_hist(ds, ax=ax0, reg='all', var=var, log=False)
+    xlim, ylim, title = xlim_ylim_title[var]
+    ax0.set_xlim(xlim)
+    ax0.set_ylim(ylim)
+    # ax.set_title(title.format(reg=reg))
+
+    plot_hist_probs(ds, reg='all', var=var, ax=ax1)
+
+    xlim, ylim, title = xlim_ylim_title[var]
+    ax1.set_xlim(xlim)
+    ax1.set_ylim((0, 1))
+    # ax1.set_title(title.format(reg=reg))
+
+
+class PlotCombineVarConditionalERA5Hist(TaskRule):
+    @staticmethod
+    def rule_inputs(year, e5vars):
+        inputs = {
+            f'hist_{year}_{month}': fmtp(cu.FMT_PATH_COND_HIST_HOURLY, year=year, month=month, core_method='tb')
+            for month in cu.MONTHS
+        }
+        return inputs
+
+    rule_outputs = {
+        'fig': (PATHS['figdir'] / 'conditional_era5_histograms' /
+                'combined_yearly_hist_{e5vars}_{year}_tb.png')
+    }
+
+    depends_on = [get_labels, plot_hist, plot_hist_probs, plot_combined_hists_for_var]
+
+    var_matrix = {
+        'year': cu.YEARS,
+        'e5vars': [
+            'cape-tcwv-vertically_integrated_moisture_flux_div',
+            'shear_0-shear_1-shear_2',
+        ],
+    }
+
+    def rule_run(self):
+        fig, axes = plt.subplots(2, 3)
+        fig.set_size_inches((15, 8))
+        e5vars = self.e5vars.split('-')
+
+        with xr.open_mfdataset(self.inputs.values()) as ds:
+            ds.load()
+            for (ax0, ax1), var in zip(axes.T, e5vars):
+                print(var)
+                plot_combined_hists_for_var(ax0, ax1, ds, var)
+
+                if var == 'vertically_integrated_moisture_flux_div':
+                    ax1.set_xlabel('VIMFD (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)')
+                else:
+                    ax1.set_xlabel(get_labels(var))
+
+        axes[0, 0].legend()
+        for ax in axes[0]:
+            ax.set_xticklabels([])
+        plt.subplots_adjust(left=0.05, right=0.95, bottom=0.08, top=0.95, wspace=0.2, hspace=0.2)
+        plt.savefig(self.outputs['fig'])
 
 
 def plot_convection_hourly_hists(ds, var):
@@ -171,6 +248,7 @@ def plot_convection_hourly_hists(ds, var):
 
 
 class PlotCombineConvectionConditionalERA5Hist(TaskRule):
+    @staticmethod
     def rule_inputs(year, core_method):
         inputs = {
             f'hist_{year}_{month}': fmtp(cu.FMT_PATH_COND_HIST_HOURLY, year=year, month=month, core_method=core_method)
@@ -285,6 +363,7 @@ def plot_gridpoint_lat_band_hist(ds, var, latstep=20):
 
 
 class PlotGridpointConditionalERA5Hist(TaskRule):
+    @staticmethod
     def rule_inputs(year):
         inputs = {
             f'hist_{year}': fmtp(cu.FMT_PATH_COMBINED_COND_HIST_GRIDPOINT, year=year),
@@ -397,6 +476,7 @@ def plot_global_rmse_bias(ds, var):
 
 
 class PlotGridpointGlobal(TaskRule):
+    @staticmethod
     def rule_inputs(year):
         inputs = {
             f'hist_{year}': fmtp(cu.FMT_PATH_COMBINED_COND_HIST_GRIDPOINT, year=year),
@@ -479,6 +559,7 @@ def plot_mcs_local_var(ds, var, title, mode='time_mean'):
 
 
 class PlotMcsLocalEnv(TaskRule):
+    @staticmethod
     def rule_inputs(year, mode):
         inputs = {f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV,
                                                         year=year,
@@ -518,34 +599,118 @@ class PlotMcsLocalEnv(TaskRule):
                     plt.savefig(self.outputs[f'fig_{radius}_monthly_{var}'])
 
 
-def plot_precursor_mean_val(ds, var, radii, N=73):
+def plot_monthly_mcs_local_var(ax, ds, var):
+    mask_sum = ds.dist_mask_sum.sum(dim='time')
+    # mask_sum_masked = np.ma.masked_array(mask_sum.values, mask=mask_sum < 10)
+
+    da_var = ds[f'mcs_local_{var}']
+    da_mean = ds[var]
+
+    vmax = max(np.max(ds[var].values), np.nanmax(ds[f'mcs_local_{var}'].values))
+    diff = (da_var - da_mean).mean(dim='time')
+
+    absmax_diff = np.abs(diff).max()
+    if var == 'cape':
+        levels1 = np.linspace(0, 1000, 11)
+        levels2 = np.linspace(-500, 500, 11)
+    elif var == 'tcwv':
+        levels1 = np.linspace(0, 60, 11)
+        levels2 = np.linspace(-30, 30, 11)
+    elif var.startswith('shear'):
+        levels1 = np.linspace(0, 20, 11)
+        levels2 = np.linspace(-10, 10, 11)
+    else:
+        levels1 = np.linspace(-0.0015, 0.0015, 11) * 1e4
+        levels2 = np.linspace(-0.0005, 0.0005, 11) * 1e4
+        diff *= 1e4
+
+    extent = (0, 360, -60, 60)
+    im = ax.imshow(np.ma.masked_array(diff.values, mask=mask_sum < 10), vmin=levels2[0], vmax=levels2[-1], cmap='bwr', extent=extent)
+
+    if var == 'vertically_integrated_moisture_flux_div':
+        label = 'VIMFD (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+    else:
+        label = get_labels(var)
+    plt.colorbar(im, ax=ax, extend='both', label=label)
+    ax.coastlines()
+    ax.set_ylim((-60, 60))
+
+
+class PlotCombinedMcsLocalEnv(TaskRule):
+    @staticmethod
+    def rule_inputs(year, e5vars):
+        inputs = {f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV,
+                                                        year=year,
+                                                        month=month,
+                                                        mode='init')
+                  for month in cu.MONTHS}
+        return inputs
+
+    rule_outputs = {
+        f'fig_{radius}': (PATHS['figdir'] / 'mcs_local_env' /
+                          f'combined_mcs_local_env_r{radius}km_{{e5vars}}_init_{{year}}.png')
+        for radius in [500]
+    }
+
+    depends_on = [
+        plot_monthly_mcs_local_var,
+    ]
+
+    var_matrix = {
+        'year': cu.YEARS,
+        'e5vars': ['cape-tcwv-shear_0-vertically_integrated_moisture_flux_div'],
+    }
+
+    def rule_run(self):
+        e5vars = self.e5vars.split('-')
+
+        with xr.open_mfdataset(self.inputs.values()) as ds:
+            ds.load()
+            for radius in [500]:
+                fig, axes = plt.subplots(2, 2, subplot_kw={'projection': ccrs.PlateCarree()})
+                fig.set_size_inches((11, 4))
+                for ax, var in zip(axes.flatten(), e5vars):
+                    title = f'r{radius}km - {var}'
+                    print(title)
+                    plot_monthly_mcs_local_var(ax, ds.sel(radius=radius), var)
+
+                plt.subplots_adjust(left=0.02, right=0.98, bottom=0.05, top=0.95, wspace=0.02, hspace=0.1)
+                plt.savefig(self.outputs[f'fig_{radius}'])
+
+
+def plot_precursor_mean_val(ds, var, radii, ax=None, N=73):
     ds[f'mean_{var}'].load()
 
     # fig, (ax1, ax2) = plt.subplots(2, 1)
-    fig, ax1 = plt.subplots(1, 1)
-    fig.set_size_inches((20, 8))
+    if ax is None:
+        ax = plt.gca()
     for r in radii:
         print(f' plot {r}')
         data = ds[f'mean_{var}'].sel(radius=r).isel(times=slice(0, N)).mean(dim='tracks')
-        ax1.plot(range(-24, -24 + N), data, label=r)
+        if var == 'vertically_integrated_moisture_flux_div':
+            ax.plot(range(-24, -24 + N), data * 1e4, label=f'{r} km')
+            ylabel = 'VIMFD (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+            ax.set_ylabel(ylabel)
+        else:
+            ax.plot(range(-24, -24 + N), data, label=f'{r} km')
+            ax.set_ylabel(get_labels(var))
+
+    ax.axvline(x=0)
 
     # THIS IS SSSSLLLLOOOOOWWWW!!!!
     # print(f' load hist')
     # hist_data = ds[f'hist_{var}'].sel(radius=100).isel(times=slice(0, N)).load()
     # print(f' plot hist')
     # ax2.plot(range(-24, -24 + N), np.isnan(hist_data.values).sum(axis=(0, 1)))
-    ax1.legend()
-    # for ax in [ax1, ax2]:
-    for ax in [ax1]:
-        ax.axvline(x=0)
 
 
 class PlotMcsLocalEnvPrecursorMeanValue(TaskRule):
+    @staticmethod
     def rule_inputs(year, N):
         inputs = {f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV,
                                                         year=year,
                                                         month=month)
-                  for month in cu.MONTHS} # TODO: keep on getting HDF5 errors loading full dataset.
+                  for month in cu.MONTHS}
                   # for month in [1]}
         return inputs
 
@@ -568,7 +733,51 @@ class PlotMcsLocalEnvPrecursorMeanValue(TaskRule):
         with xr.open_mfdataset(self.inputs.values()) as ds:
             for var in cu.EXTENDED_ERA5VARS:
                 print(var)
-                plot_precursor_mean_val(ds, var, cu.RADII[1:], self.N)
+                fig, ax = plt.subplots(1, 1)
+                fig.set_size_inches((20, 8))
+                plot_precursor_mean_val(ds, var, cu.RADII[1:], ax=ax, N=self.N)
+                ax.legend()
+                ax.set_xlabel('time from MCS initiation (hr)')
                 plt.savefig(self.outputs[f'fig_{var}'])
 
+
+class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
+    @staticmethod
+    def rule_inputs(year, e5vars):
+        inputs = {f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV,
+                                                        year=year,
+                                                        month=month)
+                  for month in cu.MONTHS}
+        return inputs
+
+    rule_outputs = {
+        'fig_{e5vars}': (PATHS['figdir'] / 'mcs_local_env' /
+                         'mcs_local_env_precursor_mean_{e5vars}_{year}.png')
+    }
+
+    depends_on = [
+        plot_precursor_mean_val,
+    ]
+
+    var_matrix = {
+        'year': cu.YEARS,
+        'e5vars': ['cape-tcwv-shear_0-vertically_integrated_moisture_flux_div'],
+    }
+
+    def rule_run(self):
+        fig, axes = plt.subplots(2, 2, sharex=True)
+        fig.set_size_inches((10, 8))
+        e5vars = self.e5vars.split('-')
+
+        with xr.open_mfdataset(self.inputs.values()) as ds:
+            for ax, var in zip(axes.flatten(), e5vars):
+                print(var)
+                plot_precursor_mean_val(ds, var, cu.RADII[1:], ax=ax, N=73)
+                ax.set_xlim((-24, 48))
+
+        axes[0, 0].legend()
+        for ax in axes[1]:
+            ax.set_xlabel('time from MCS initiation (hr)')
+        plt.subplots_adjust(left=0.1, right=0.95, bottom=0.1, top=0.95, wspace=0.22, hspace=0.1)
+        plt.savefig(self.outputs[f'fig_{self.e5vars}'])
 

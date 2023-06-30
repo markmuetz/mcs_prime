@@ -89,7 +89,7 @@ STATUS_DICT = {
 }
 
 # YEARS = list(range(2000, 2021))
-YEARS = [2020]
+YEARS = [2004, 2008, 2015, 2020]
 MONTHS = range(1, 13)
 # MONTHS = [2]
 
@@ -258,9 +258,6 @@ class PixelInputsCache:
     def load_cache(self):
         with self.cache_path.open('rb') as fp:
             return pickle.load(fp)
-
-
-pixel_inputs_cache = PixelInputsCache()
 
 
 def round_times_to_nearest_second(dstracks, fields):

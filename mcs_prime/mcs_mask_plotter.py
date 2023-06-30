@@ -102,7 +102,7 @@ class McsMaskPlotter:
         for time, lat, lon in zip(track_times, track.meanlat.values[:duration], track.meanlon.values[:duration]):
             extent = (lon - 10, lon + 10, lat - 10, lat + 10)
             if time in self.plotter_data.times:
-                plot_args_kwargs.append(((time, 'tcwv', extent), {}))
+                plot_args_kwargs.append(((time, 'tcwv', extent), {'show_colourbar': False}))
             else:
                 print(f'Skipping {time}')
         return self.animate(fig, ax, plot_args_kwargs)
@@ -112,6 +112,7 @@ class McsMaskPlotter:
             print(i)
             args, kwargs = plot_args_kwargs[i]
             ax.clear()
+
             self.plot(ax, *args, **kwargs)
             clear_output(wait=True)
 
@@ -120,7 +121,8 @@ class McsMaskPlotter:
 
     def plot(self, ax=None, time=None, var='tcwv', extent=None,
              show_field=True, show_colourbar=True, show_radii=True, show_mcs_masks=True, show_precip=True,
-             grid_x=[], grid_y=[]):
+             grid_x=[], grid_y=[],
+             cbar_kwargs={}):
         if ax is None:
             fig, ax = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()})
             fig.set_size_inches(10, 7.2)
@@ -199,9 +201,9 @@ class McsMaskPlotter:
 
         if show_colourbar:
             if var == 'tcwv':
-                plt.colorbar(im, orientation='horizontal', label='TCWV (mm)')
+                plt.colorbar(im, ax=ax, label='TCWV (mm)', **cbar_kwargs)
             elif var == 'cape':
-                plt.colorbar(im, orientation='horizontal', label='CAPE (J kg$^{-1}$)')
+                plt.colorbar(im, ax=ax, label='CAPE (J kg$^{-1}$)', **cbar_kwargs)
         # ax.contour(e5data.longitude, e5data.latitude, e5data.tcwv)
 
         ax.set_xlim((lonmin, lonmax))

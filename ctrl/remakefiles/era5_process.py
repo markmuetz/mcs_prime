@@ -86,9 +86,10 @@ class CalcERA5Shear(TaskRule):
     def rule_run(self):
         # https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
         levels = [
-            136,  # 1010hPa/30m
+            136,  # 1010hPa/31m
             111,  # 804hPa/1911m
-            101,  # 610hPa/4074m
+            100,  # 590hPa/4342m
+            90,  # 399hPa/7214m
         ]
         e5times = cu.gen_era5_times_for_month(self.year, self.month)
 
@@ -108,17 +109,21 @@ class CalcERA5Shear(TaskRule):
             # MLS = shear[:, :, 2]
             # axis 1 is the level axis.
             shear = np.sqrt((np.roll(u, -1, axis=0) - u) ** 2 + (np.roll(v, -1, axis=0) - v) ** 2)
+            attrs={
+                'shear_0': 'Low-level shear: shear between surf and 800 hPa (ERA5 136-111)',
+                'shear_1': 'Low-to-mid shear: shear between 800 and 600 hPa (ERA5 111-100)',
+                'shear_2': 'mid-to-high shear: shear between 600 and 400 hPa (ERA5 100-90)',
+                'shear_3': 'Deep shear: shear between surf and 400 hPa (ERA5 136-90)',
+            }
             dsout = xr.Dataset(
                 coords=dict(
                     time=[time],
                     latitude=e5data.latitude,
                     longitude=e5data.longitude,
                 ),
-                data_vars={f'shear_{i}': (('latitude', 'longitude'), shear[i, :, :]) for i in range(len(levels))},
-                attrs={
-                    'shear_0': 'LLS: shear between surf and 800 hPa (ERA5 136-111)',
-                    'shear_1': 'Low-to-mid: shear between 800 and 600 hPa (ERA5 111-101)',
-                    'shear_2': 'MLS: shear between surf and 600 hPa (ERA5 136-101)',
+                data_vars={
+                    f'shear_{i}': (('latitude', 'longitude'), shear[i, :, :], {'description': attrs[f'shear_{i}']})
+                    for i in range(len(levels))
                 },
             )
             cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'shear_{time}'])
@@ -162,6 +167,7 @@ def calc_div_mf(rho, q, u, v, dx, dy):
 
 
 class CalcERA5VIMoistureFluxDiv(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
@@ -243,6 +249,126 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
             )
             print(dsout)
             cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'vimfd_{time}'])
+
+
+class CalcERA5LayerMeans(TaskRule):
+    enabled = False
+    @staticmethod
+    def rule_inputs(year, month):
+        e5times = cu.gen_era5_times_for_month(year, month)
+        fmt = cu.FMT_PATH_ERA5_ML if year not in range(2000, 2006) else cu.FMT_PATH_ERA51_ML
+        e5inputs = {
+            f'era5_{t}_{var}': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
+            for t in e5times
+            for var in ['t', 'q', 'lnsp']
+        }
+        e5inputs['model_levels'] = cu.PATH_ERA5_MODEL_LEVELS
+        return e5inputs
+
+    @staticmethod
+    def rule_outputs(year, month):
+        e5times = cu.gen_era5_times_for_month(year, month)
+        outputs = {
+            f'layer_means_{t}': fmtp(cu.FMT_PATH_ERA5P_LAYER_MEANS, year=t.year, month=t.month, day=t.day, hour=t.hour)
+            for t in e5times
+        }
+        return outputs
+
+    var_matrix = {
+        ('year', 'month'): EXTENDED_YEARS_MONTHS,
+    }
+
+    def rule_run(self):
+        e5times = cu.gen_era5_times_for_month(self.year, self.month)
+        e5calc = ERA5Calc(self.inputs['model_levels'])
+
+        for i, time in enumerate(e5times):
+            # Running out of memory doing full 4D calc: break into 24x31 3D calc.
+            print(time)
+            e5inputs = {(time, v): self.inputs[f'era5_{time}_{v}'] for v in ['t', 'q', 'lnsp']}
+            # Only load levels where appreciable q, to save memory.
+            # q -> 0 by approx. level 70. Go higher (level 60=~100hPa) to be safe.
+            with xr.open_mfdataset(e5inputs.values()) as ds:
+                e5data = ds.isel(time=0).sel(latitude=slice(60, -60)).load()
+                q = e5data.q.values
+                T = e5data.t.values
+                lnsp = e5data.lnsp.values
+                longitude = e5data.longitude
+                latitude = e5data.latitude
+
+            p = e5calc.calc_pressure(lnsp)
+            # 114: 856 hPa - https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
+            RHlow = e5calc.calc_RH(p[114:], T[114:], q[114:]).mean(axis=0)
+
+            # 90: 407 hPa - https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
+            # 105: 703 hPa - https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
+            RHmid = e5calc.calc_RH(p[90:106], T[90:106], q[90:106]).mean(axis=0)
+
+            # 107: 742 hPa
+            # 114: 857 hPa
+            theta_e_mid = e5calc.calc_theta_e(p[107:115], T[107:115], q[107:115]).mean(axis=0)
+
+            dsout = xr.Dataset(
+                coords=dict(
+                    time=[time],
+                    latitude=latitude,
+                    longitude=longitude,
+                ),
+                data_vars={
+                    'RHlow': (('latitude', 'longitude'), RHlow, {'ERA5 model layers': 'surf-114 (surf-856 hPa)'}),
+                    'RHmid': (('latitude', 'longitude'), RHmid, {'ERA5 model layers': '105-90 (703-407 hPa)'}),
+                    'theta_e_mid': (('latitude', 'longitude'), theta_e_mid, {'ERA5 model layers': '114-107 (857-742 hPa)'}),
+                },
+            )
+            print(dsout)
+            cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'layer_means_{time}'])
+
+
+class CalcERA5Delta(TaskRule):
+    enabled = False
+    @staticmethod
+    def rule_inputs(year, month, var):
+        start = pd.Timestamp(year, month, 1) - pd.Timedelta(hours=3)
+        end = pd.Timestamp(year, month, 1) + pd.DateOffset(months=1) - pd.Timedelta(hours=1)
+        e5times = pd.date_range(start, end, freq='H')
+
+        fmt = cu.FMT_PATH_ERA5_SFC
+        e5inputs = {
+            f'era5_{t}_{var}': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
+            for t in e5times
+        }
+        return e5inputs
+
+    @staticmethod
+    def rule_outputs(year, month, var):
+        e5times = cu.gen_era5_times_for_month(year, month)
+        outputs = {
+            f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5P_DELTA, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
+            for t in e5times
+        }
+        return outputs
+
+    var_matrix = {
+        ('year', 'month'): EXTENDED_YEARS_MONTHS,
+        'var': ['cape'],
+    }
+
+    def rule_run(self):
+        e5times = cu.gen_era5_times_for_month(self.year, self.month)
+        var = self.var
+
+        for i, time in enumerate(e5times):
+            # Running out of memory doing full 4D calc: break into 24x31 3D calc.
+            print(time)
+            e5inputs = {(t, var): self.inputs[f'era5_{t}_{var}']
+                        for t in [time - pd.Timedelta(hours=3), time]}
+            print(e5inputs)
+            with xr.open_mfdataset(e5inputs.values()) as ds:
+                e5data = ds.sel(latitude=slice(60, -60)).load()
+            dsout = e5data.isel(time=1) - e5data.isel(time=0)
+
+            print(dsout)
+            cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'era5_{time}_{var}'])
 
 
 class GenPixelDataOnERA5Grid(TaskRule):

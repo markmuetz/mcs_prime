@@ -89,7 +89,7 @@ STATUS_DICT = {
 }
 
 # YEARS = list(range(2000, 2021))
-YEARS = [2004, 2008, 2015, 2020]
+YEARS = [2020]
 MONTHS = range(1, 13)
 # MONTHS = [2]
 
@@ -141,6 +141,16 @@ FMT_PATH_ERA5P_VIMFD = (
     PATHS['outdir']
     / 'era5_processed/{year}/{month:02d}/{day:02d}'
     / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}' '{hour:02d}00.proc_vimfd.nc')
+)
+FMT_PATH_ERA5P_LAYER_MEANS = (
+    PATHS['outdir']
+    / 'era5_processed/{year}/{month:02d}/{day:02d}'
+    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_layer_means.nc')
+)
+FMT_PATH_ERA5P_DELTA = (
+    PATHS['outdir']
+    / 'era5_processed/{year}/{month:02d}/{day:02d}'
+    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_delta_{var}.nc')
 )
 FMT_PATH_PIXEL_ON_ERA5 = (
     PATHS['outdir']
@@ -333,7 +343,7 @@ def gen_era5_times_for_month(year, month, include_precursor_offset=True):
 def to_netcdf_tmp_then_copy(ds, outpath, encoding=None):
     if encoding is None:
         encoding = {}
-    tmpdir = Path('/work/scratch-nopw/mmuetz')
+    tmpdir = Path('/work/scratch-nopw2/mmuetz')
     assert outpath.is_absolute()
     tmppath = tmpdir / Path(*outpath.parts[1:])
     tmppath.parent.mkdir(exist_ok=True, parents=True)

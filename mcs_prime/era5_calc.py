@@ -19,8 +19,18 @@ class ERA5Calc:
         return p
 
     def calc_Tv(self, T, q):
-        return mpcalc.virtual_temperature(T * units.K, q).magnitude
+        return mpcalc.virtual_temperature(T * units.K, q * units('kg/kg')).magnitude
 
     def calc_rho(self, p, Tv, Rd=287):
         rho = p / (Rd * Tv)
         return rho
+
+    def calc_theta_e(self, p, T, q):
+        Td = mpcalc.dewpoint_from_specific_humidity(p * units.Pa, T * units.K, q * units('kg/kg'))
+        return mpcalc.equivalent_potential_temperature(p * units.Pa, T * units.K, Td).magnitude
+
+    def calc_RH(self, p, T, q):
+        return mpcalc.relative_humidity_from_specific_humidity(p * units.Pa,
+                                                               T * units.K,
+                                                               q * units('kg/kg')).magnitude
+

@@ -36,7 +36,7 @@ def plot_hist(ds, ax=None, reg='all', var='cape', s=None, log=True):
         width = bins[1] - bins[0]
         h_density = h / (h.sum() * width)
         if var == 'vertically_integrated_moisture_flux_div':
-            ax.plot(ds[f'{var}_hist_mids'].values[s] * 1e4, h_density[s], fmt, label=title)
+            ax.plot(-ds[f'{var}_hist_mids'].values[s] * 1e4, h_density[s], fmt, label=title)
         else:
             ax.plot(ds[f'{var}_hist_mids'].values[s], h_density[s], fmt, label=title)
 
@@ -69,7 +69,7 @@ def plot_hist_probs(ds, ax=None, reg='all', var='cape', s=None):
     probs = counts / counts.sum(axis=0)[None, :]
 
     if var == 'vertically_integrated_moisture_flux_div':
-        x = ds[f'{var}_hist_mids'].values[s] * 1e4
+        x = -ds[f'{var}_hist_mids'].values[s] * 1e4
     else:
         x = ds[f'{var}_hist_mids'].values[s]
     # ax.set_title(f'{var.upper()} probabilities')
@@ -141,10 +141,10 @@ class PlotCombineConditionalERA5Hist(TaskRule):
 def plot_combined_hists_for_var(ax0, ax1, ds, var):
     xlim_ylim_title = {
         'cape': ((0, 2500), (0, 0.0014), 'CAPE'),
-        'tcwv': ((None, None), (0, 0.08), 'TCWV'),
-        'shear_0': ((None, None), (None, None), 'LLS'),
-        'shear_1': ((None, None), (None, None), 'L2MS'),
-        'shear_2': ((None, None), (None, None), 'MLS'),
+        'tcwv': ((0, 80), (0, 0.08), 'TCWV'),
+        'shear_0': ((0, 40), (None, None), 'LLS'),
+        'shear_1': ((0, 40), (None, None), 'L2MS'),
+        'shear_2': ((0, 40), (None, None), 'MLS'),
         'vertically_integrated_moisture_flux_div': ((None, None), (None, None), 'VIMFD'),
     }
 
@@ -187,7 +187,7 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
     }
 
     def rule_run(self):
-        fig, axes = plt.subplots(2, 3)
+        fig, axes = plt.subplots(2, 3, sharex='col')
         fig.set_size_inches((15, 8))
         e5vars = self.e5vars.split('-')
 
@@ -198,13 +198,13 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
                 plot_combined_hists_for_var(ax0, ax1, ds, var)
 
                 if var == 'vertically_integrated_moisture_flux_div':
-                    ax1.set_xlabel('VIMFD (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)')
+                    ax1.set_xlabel('MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)')
                 else:
                     ax1.set_xlabel(get_labels(var))
 
         axes[0, 0].legend()
-        for ax in axes[0]:
-            ax.set_xticklabels([])
+        # for ax in axes[0]:
+        #     ax.set_xticklabels([])
         plt.subplots_adjust(left=0.05, right=0.95, bottom=0.08, top=0.95, wspace=0.2, hspace=0.2)
         plt.savefig(self.outputs['fig'])
 
@@ -212,7 +212,10 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
 def plot_convection_hourly_hists(ds, var):
     fig, (ax, ax2) = plt.subplots(2, 1, sharex=True)
 
-    ax.set_title(var.upper())
+    if var == 'vertically_integrated_moisture_flux_div':
+        ax.set_title('MFC')
+    else:
+        ax.set_title(var.upper())
     for lsreg in ['all', 'land', 'ocean']:
         d1 = ds[f'{lsreg}_{var}_MCS_core'].sum(dim='time').values
         d2 = ds[f'{lsreg}_{var}_cloud_core'].sum(dim='time').values
@@ -224,8 +227,14 @@ def plot_convection_hourly_hists(ds, var):
         with np.errstate(invalid='ignore', divide='ignore'):
             d = d1 / (d1 + d2)
 
-        p = ax.plot(ds[f'{var}_hist_mids'].values, d, label=lsreg)
-        ax2.plot(ds[f'{var}_hist_mids'].values, dt / dt.sum(), label=lsreg, color=p[0].get_color(), linestyle='--')
+        if var == 'vertically_integrated_moisture_flux_div':
+            x = ds[f'{var}_hist_mids'].values * -1e4
+        else:
+            x = ds[f'{var}_hist_mids'].values
+
+
+        p = ax.plot(x, d, label=lsreg)
+        ax2.plot(x, dt / dt.sum(), label=lsreg, color=p[0].get_color(), linestyle='--')
 
         if var == 'cape':
             plt.xlabel('J kg$^{-1}$')
@@ -233,9 +242,9 @@ def plot_convection_hourly_hists(ds, var):
         elif var == 'tcwv':
             plt.xlabel('mm')
             plt.xlim((0, 100))
-        elif var == 'vimfd':
-            plt.xlabel('kg m$^{-2}$ s$^{-1}$')
-            plt.xlim((-0.002, 0.002))
+        elif var == 'vertically_integrated_moisture_flux_div':
+            plt.xlabel('10$^{-4}$ kg m$^{-2}$ s$^{-1}$')
+            plt.xlim((-0.002 * 1e4, 0.002 * 1e4))
         elif var.startswith('shear'):
             plt.xlabel('m s$^{-1}$')
     ax.set_ylabel('p(MCS conv|conv)')
@@ -622,13 +631,13 @@ def plot_monthly_mcs_local_var(ax, ds, var):
     else:
         levels1 = np.linspace(-0.0015, 0.0015, 11) * 1e4
         levels2 = np.linspace(-0.0005, 0.0005, 11) * 1e4
-        diff *= 1e4
+        diff *= -1e4
 
     extent = (0, 360, -60, 60)
     im = ax.imshow(np.ma.masked_array(diff.values, mask=mask_sum < 10), vmin=levels2[0], vmax=levels2[-1], cmap='bwr', extent=extent)
 
     if var == 'vertically_integrated_moisture_flux_div':
-        label = 'VIMFD (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+        label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
     else:
         label = get_labels(var)
     plt.colorbar(im, ax=ax, extend='both', label=label)
@@ -688,8 +697,8 @@ def plot_precursor_mean_val(ds, var, radii, ax=None, N=73):
         print(f' plot {r}')
         data = ds[f'mean_{var}'].sel(radius=r).isel(times=slice(0, N)).mean(dim='tracks')
         if var == 'vertically_integrated_moisture_flux_div':
-            ax.plot(range(-24, -24 + N), data * 1e4, label=f'{r} km')
-            ylabel = 'VIMFD (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+            ax.plot(range(-24, -24 + N), -data * 1e4, label=f'{r} km')
+            ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
             ax.set_ylabel(ylabel)
         else:
             ax.plot(range(-24, -24 + N), data, label=f'{r} km')

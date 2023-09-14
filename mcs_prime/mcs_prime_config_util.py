@@ -96,9 +96,11 @@ MONTHS = range(1, 13)
 RADII = [1, 100, 200, 500, 1000]
 
 ERA5VARS = ['cape', 'tcwv']
-SHEAR_ERA5VARS = ['shear_0', 'shear_1', 'shear_2']
+SHEAR_ERA5VARS = ['shear_0', 'shear_1', 'shear_2', 'shear_3']
 VIMFD_ERA5VARS = ['vertically_integrated_moisture_flux_div']
-PROC_ERA5VARS = SHEAR_ERA5VARS + VIMFD_ERA5VARS
+LAYER_MEANS_ERA5VARS = ['RHlow', 'RHmid', 'theta_e_mid']
+DELTA_ERA5VARS = ['delta_3h_cape', 'delta_3h_tcwv']
+PROC_ERA5VARS = SHEAR_ERA5VARS + VIMFD_ERA5VARS + LAYER_MEANS_ERA5VARS + DELTA_ERA5VARS
 EXTENDED_ERA5VARS = ERA5VARS + PROC_ERA5VARS
 
 LS_REGIONS = ['all', 'land', 'ocean']
@@ -150,7 +152,7 @@ FMT_PATH_ERA5P_LAYER_MEANS = (
 FMT_PATH_ERA5P_DELTA = (
     PATHS['outdir']
     / 'era5_processed/{year}/{month:02d}/{day:02d}'
-    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_delta_{var}.nc')
+    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_delta.nc')
 )
 FMT_PATH_PIXEL_ON_ERA5 = (
     PATHS['outdir']
@@ -387,6 +389,16 @@ def get_bins(var):
         bins = np.linspace(0, 100, 101)
     elif var == 'vertically_integrated_moisture_flux_div':
         bins = np.linspace(-2e-3, 2e-3, 101)
+    elif var == 'RHlow':
+        bins = np.linspace(0, 1, 101)
+    elif var == 'RHmid':
+        bins = np.linspace(0, 1, 101)
+    elif var == 'theta_e_mid':
+        bins = np.linspace(200, 400, 101)
+    elif var == 'delta_3h_cape':
+        bins = np.linspace(-1000, 1000, 101)
+    elif var == 'delta_3h_tcwv':
+        bins = np.linspace(-100, 100, 101)
     hist_mids = (bins[1:] + bins[:-1]) / 2
     return bins, hist_mids
 

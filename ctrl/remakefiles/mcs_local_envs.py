@@ -35,6 +35,8 @@ def load_e5_data(logger, e5times, inputs):
     e5paths = [inputs[f'era5_{t}_{v}'] for t in e5times for v in cu.ERA5VARS]
     e5proc_shear_paths = [inputs[f'shear_{t}'] for t in e5times]
     e5proc_vimfd_paths = [inputs[f'vimfd_{t}'] for t in e5times]
+    e5proc_layer_means_paths = [inputs[f'layer_means_{t}'] for t in e5times]
+    e5proc_delta_paths = [inputs[f'delta_{t}'] for t in e5times]
 
     logger.debug('Open ERA5')
     e5ds = xr.open_mfdataset(e5paths).sel(latitude=slice(60, -60)).interp(time=mcs_times)
@@ -42,8 +44,12 @@ def load_e5_data(logger, e5times, inputs):
     e5shear = xr.open_mfdataset(e5proc_shear_paths).interp(time=mcs_times)
     logger.debug('Open proc VIMFD')
     e5vimfd = xr.open_mfdataset(e5proc_vimfd_paths).interp(time=mcs_times)
+    logger.debug('Open proc layer means')
+    e5layer_means = xr.open_mfdataset(e5proc_layer_means_paths).interp(time=mcs_times)
+    logger.debug('Open proc delta')
+    e5delta = xr.open_mfdataset(e5proc_delta_paths).interp(time=mcs_times)
 
-    return xr.merge([e5ds.load(), e5shear.load(), e5vimfd.load()])
+    return xr.merge([e5ds.load(), e5shear.load(), e5vimfd.load(), e5layer_means.load(), e5delta.load()])
 
 
 class GenLatLonDistance(TaskRule):
@@ -144,6 +150,18 @@ class McsLocalEnv(TaskRule):
         inputs.update(
             {
                 f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
+                for t in e5times
+            }
+        )
+        inputs.update(
+            {
+                f'layer_means_{t}': fmtp(cu.FMT_PATH_ERA5P_LAYER_MEANS, year=t.year, month=t.month, day=t.day, hour=t.hour)
+                for t in e5times
+            }
+        )
+        inputs.update(
+            {
+                f'delta_{t}': fmtp(cu.FMT_PATH_ERA5P_DELTA, year=t.year, month=t.month, day=t.day, hour=t.hour)
                 for t in e5times
             }
         )
@@ -266,6 +284,18 @@ class LifecycleMcsLocalEnvHist(TaskRule):
         inputs.update(
             {
                 f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
+                for t in e5times
+            }
+        )
+        inputs.update(
+            {
+                f'layer_means_{t}': fmtp(cu.FMT_PATH_ERA5P_LAYER_MEANS, year=t.year, month=t.month, day=t.day, hour=t.hour)
+                for t in e5times
+            }
+        )
+        inputs.update(
+            {
+                f'delta_{t}': fmtp(cu.FMT_PATH_ERA5P_DELTA, year=t.year, month=t.month, day=t.day, hour=t.hour)
                 for t in e5times
             }
         )

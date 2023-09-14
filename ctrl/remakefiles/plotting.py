@@ -19,7 +19,13 @@ def get_labels(var):
         'vertically_integrated_moisture_flux_div': 'VIMFD (kg m$^{-2}$ s$^{-1}$)',
         'shear_0': 'LLS (m s$^{-1}$)',
         'shear_1': 'L2MS (m s$^{-1}$)',
-        'shear_2': 'MLS (m s$^{-1}$)',
+        'shear_2': 'M2HS (m s$^{-1}$)',
+        'shear_3': 'DS (m s$^{-1}$)',
+        'theta_e_mid': r'$\theta_e$ (K)',
+        'RHlow': 'RHlow (-)',
+        'RHmid': 'RHmid (-)',
+        'delta_3h_cape': r'CAPE $\Delta$ 3h (J kg$^{-1}$)',
+        'delta_3h_tcwv': r'TCWV $\Delta$ 3h (mm)',
     }
     return labels[var]
 
@@ -87,8 +93,14 @@ def plot_hists_for_var(ds, var):
         'tcwv': ((None, None), (0, 0.08), 'TCWV {reg}'),
         'shear_0': ((None, None), (None, None), 'LLS {reg}'),
         'shear_1': ((None, None), (None, None), 'L2MS {reg}'),
-        'shear_2': ((None, None), (None, None), 'MLS {reg}'),
+        'shear_2': ((None, None), (None, None), 'M2HS {reg}'),
+        'shear_3': ((None, None), (None, None), 'DS {reg}'),
         'vertically_integrated_moisture_flux_div': ((None, None), (None, None), 'VIMFD {reg}'),
+        'RHlow': ((None, None), (None, None), 'RHlow {reg}'),
+        'RHmid': ((None, None), (None, None), 'RHmid {reg}'),
+        'theta_e_mid': ((None, None), (None, None), r'$\theta_e$ {reg}'),
+        'delta_3h_cape': ((None, None), (None, None), r'\Delta 3h CAPE {reg}'),
+        'delta_3h_tcwv': ((None, None), (None, None), r'\Delta 3h TCWV {reg}'),
     }
     fig, axes = plt.subplots(2, 3, sharex=True)
     fig.set_size_inches((20, 10))
@@ -144,8 +156,14 @@ def plot_combined_hists_for_var(ax0, ax1, ds, var):
         'tcwv': ((0, 80), (0, 0.08), 'TCWV'),
         'shear_0': ((0, 40), (None, None), 'LLS'),
         'shear_1': ((0, 40), (None, None), 'L2MS'),
-        'shear_2': ((0, 40), (None, None), 'MLS'),
+        'shear_2': ((0, 40), (None, None), 'M2HS'),
+        'shear_3': ((None, None), (None, None), 'DS'),
+        'RHlow': ((None, None), (None, None), 'RHlow'),
+        'RHmid': ((None, None), (None, None), 'RHmid'),
+        'theta_e_mid': ((None, None), (None, None), r'$\theta_e$'),
         'vertically_integrated_moisture_flux_div': ((None, None), (None, None), 'VIMFD'),
+        'delta_3h_cape': ((None, None), (None, None), r'\Delta 3h CAPE'),
+        'delta_3h_tcwv': ((None, None), (None, None), r'\Delta 3h TCWV'),
     }
 
     plot_hist(ds, ax=ax0, reg='all', var=var, log=False)
@@ -183,10 +201,13 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
         'e5vars': [
             'cape-tcwv-vertically_integrated_moisture_flux_div',
             'shear_0-shear_1-shear_2',
+            'shear_0-shear_1-shear_3',
+            'RHlow-RHmid-theta_e_mid',
         ],
     }
 
     def rule_run(self):
+
         fig, axes = plt.subplots(2, 3, sharex='col')
         fig.set_size_inches((15, 8))
         e5vars = self.e5vars.split('-')
@@ -667,7 +688,10 @@ class PlotCombinedMcsLocalEnv(TaskRule):
 
     var_matrix = {
         'year': cu.YEARS,
-        'e5vars': ['cape-tcwv-shear_0-vertically_integrated_moisture_flux_div'],
+        'e5vars': [
+            'cape-tcwv-shear_0-vertically_integrated_moisture_flux_div',
+            # 'shear_3-theta_e_mid-RHlow-RHmid',
+        ],
     }
 
     def rule_run(self):

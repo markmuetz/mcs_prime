@@ -34,7 +34,6 @@ EXTENDED_YEARS_MONTHS = sorted(set(EXTENDED_YEARS_MONTHS))
 
 
 class GenRegridder(TaskRule):
-    enabled = False
     """Generate a xesmf regridder for regridding/coarsening from MCS dataset to ERA5 grid."""
 
     rule_inputs = {
@@ -167,7 +166,6 @@ def calc_div_mf(rho, q, u, v, dx, dy):
 
 
 class CalcERA5VIMoistureFluxDiv(TaskRule):
-    enabled = False
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
@@ -252,7 +250,6 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
 
 
 class CalcERA5LayerMeans(TaskRule):
-    enabled = False
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
@@ -325,9 +322,8 @@ class CalcERA5LayerMeans(TaskRule):
 
 
 class CalcERA5Delta(TaskRule):
-    enabled = False
     @staticmethod
-    def rule_inputs(year, month, var):
+    def rule_inputs(year, month):
         start = pd.Timestamp(year, month, 1) - pd.Timedelta(hours=3)
         end = pd.Timestamp(year, month, 1) + pd.DateOffset(months=1) - pd.Timedelta(hours=1)
         e5times = pd.date_range(start, end, freq='H')
@@ -336,43 +332,56 @@ class CalcERA5Delta(TaskRule):
         e5inputs = {
             f'era5_{t}_{var}': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
             for t in e5times
+            for var in ['cape', 'tcwv']
         }
+        # fmt = cu.FMT_PATH_ERA5P_VIMFD
+        # e5inputs.update({
+        #     f'era5_{t}_vertically_integrated_moisture_flux_div': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour)
+        #     for t in e5times
+        # })
         return e5inputs
 
     @staticmethod
-    def rule_outputs(year, month, var):
+    def rule_outputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
         outputs = {
-            f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5P_DELTA, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
+            f'era5_{t}': fmtp(cu.FMT_PATH_ERA5P_DELTA, year=t.year, month=t.month, day=t.day, hour=t.hour)
             for t in e5times
         }
         return outputs
 
     var_matrix = {
         ('year', 'month'): EXTENDED_YEARS_MONTHS,
-        'var': ['cape'],
     }
 
     def rule_run(self):
+        # print('\n'.join(str(p) for p in self.inputs.values()))
+        e5vars = ['cape', 'tcwv']
         e5times = cu.gen_era5_times_for_month(self.year, self.month)
-        var = self.var
 
         for i, time in enumerate(e5times):
             # Running out of memory doing full 4D calc: break into 24x31 3D calc.
             print(time)
-            e5inputs = {(t, var): self.inputs[f'era5_{t}_{var}']
-                        for t in [time - pd.Timedelta(hours=3), time]}
+            e5inputs = {
+                (t, var): self.inputs[f'era5_{t}_{var}']
+                for t in [time - pd.Timedelta(hours=3), time]
+                for var in e5vars
+            }
             print(e5inputs)
             with xr.open_mfdataset(e5inputs.values()) as ds:
                 e5data = ds.sel(latitude=slice(60, -60)).load()
+            print(e5data.isel(time=1).time)
+            print(e5data.isel(time=0).time)
             dsout = e5data.isel(time=1) - e5data.isel(time=0)
+            dsout = dsout.rename({var: f'delta_3h_{var}'
+                                  for var in e5vars})
+            dsout = dsout.assign_coords({'time': [time]})
 
             print(dsout)
-            cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'era5_{time}_{var}'])
+            cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'era5_{time}'])
 
 
 class GenPixelDataOnERA5Grid(TaskRule):
-    enabled = False
     """Generate ERA5 pixel data by regridding native MCS dataset masks/cloudnumbers
 
     The MCS dataset pixel-level data has a field cloudnumber, which maps onto the
@@ -496,7 +505,6 @@ class GenPixelDataOnERA5Grid(TaskRule):
 
 
 class CalcERA5MeanField(TaskRule):
-    enabled = False
     @staticmethod
     def rule_inputs(year, month):
         # start = pd.Timestamp(year, month, 1)

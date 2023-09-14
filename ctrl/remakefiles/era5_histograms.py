@@ -65,10 +65,27 @@ def conditional_inputs(year, month, precursor_time=0):
         f'era5p_vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
         for t in e5times
     }
+    e5proc_layer_means = {
+        f'era5p_layer_means_{t}': fmtp(cu.FMT_PATH_ERA5P_LAYER_MEANS, year=t.year, month=t.month, day=t.day, hour=t.hour)
+        for t in e5times
+    }
+    e5proc_delta = {
+        f'era5p_delta_{v}_{t}': fmtp(cu.FMT_PATH_ERA5P_DELTA, year=t.year, month=t.month, day=t.day, hour=t.hour, var=v)
+        for t in e5times
+        for v in ['cape', 'tcwv']
+    }
 
     e5lsm = {'ERA5_land_sea_mask': cu.PATH_ERA5_LAND_SEA_MASK}
 
-    return e5inputs, e5proc_shear, e5proc_vimfd, pixel_on_e5_inputs, e5lsm
+    return {
+        **e5inputs,
+        **e5proc_shear,
+        **e5proc_vimfd,
+        **e5proc_layer_means,
+        **e5proc_delta,
+        **pixel_on_e5_inputs,
+        **e5lsm
+    }
 
 
 def monthly_meanfield_conditional_inputs(month):
@@ -100,9 +117,14 @@ def conditional_load_data(logger, year, month, inputs, precursor_time=0):
 
     tracks, pixel_on_e5 = conditional_load_mcs_data(logger, year, month, inputs)
 
+    # NewEnvVars: add layer means.
     e5paths = [inputs[f'era5_{t}_{v}'] for t in e5times for v in cu.ERA5VARS]
     e5proc_shear_paths = [inputs[f'era5p_shear_{t}'] for t in e5times]
     e5proc_vimfd_paths = [inputs[f'era5p_vimfd_{t}'] for t in e5times]
+    e5proc_layer_means_paths = [inputs[f'era5p_layer_means_{t}'] for t in e5times]
+    e5proc_delta_paths = [inputs[f'era5p_delta_{v}_{t}']
+                          for t in e5times
+                          for v in ['cape', 'tcwv']]
 
     mcs_times = pd.DatetimeIndex(pixel_on_e5.time)
 
@@ -112,9 +134,13 @@ def conditional_load_data(logger, year, month, inputs, precursor_time=0):
     e5shear = xr.open_mfdataset(e5proc_shear_paths).interp(time=mcs_times).sel(time=mcs_times)
     logger.debug('Open proc VIMFD')
     e5vimfd = xr.open_mfdataset(e5proc_vimfd_paths).interp(time=mcs_times).sel(time=mcs_times)
+    logger.debug('Open proc layer means')
+    e5layer_means = xr.open_mfdataset(e5proc_layer_means_paths).interp(time=mcs_times).sel(time=mcs_times)
+    logger.debug('Open proc delta')
+    e5delta = xr.open_mfdataset(e5proc_delta_paths).interp(time=mcs_times).sel(time=mcs_times)
 
     logger.debug('Load data')
-    return tracks, pixel_on_e5, xr.merge([e5ds.load(), e5shear.load(), e5vimfd.load()])
+    return tracks, pixel_on_e5, xr.merge([e5ds.load(), e5shear.load(), e5vimfd.load(), e5layer_means.load(), e5delta.load()])
 
 
 def conditional_load_meanfield_data(logger, inputs):
@@ -232,16 +258,9 @@ class PrecursorConditionalERA5HistHourly(TaskRule):
 
     @staticmethod
     def rule_inputs(year, month, precursor_time):
-        e5inputs, e5proc_shear, e5proc_vimfd, pixel_on_e5_inputs, e5lsm = conditional_inputs(
+        inputs = conditional_inputs(
             year, month, precursor_time
         )
-        inputs = {
-            **e5inputs,
-            **e5proc_shear,
-            **e5proc_vimfd,
-            **pixel_on_e5_inputs,
-            **e5lsm,
-        }
         return inputs
 
     rule_outputs = {'hist': cu.FMT_PATH_PRECURSOR_COND_HIST}
@@ -300,16 +319,12 @@ class PrecursorConditionalERA5HistHourly(TaskRule):
 
 
 class ConditionalERA5HistHourly(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year, month, core_method):
-        e5inputs, e5proc_shear, e5proc_vimfd, pixel_on_e5_inputs, e5lsm = conditional_inputs(year, month)
-        inputs = {
-            **e5inputs,
-            **e5proc_shear,
-            **e5proc_vimfd,
-            **pixel_on_e5_inputs,
-            **e5lsm,
-        }
+        inputs = conditional_inputs(
+            year, month
+        )
         return inputs
 
     rule_outputs = {'hist': cu.FMT_PATH_COND_HIST_HOURLY}
@@ -366,16 +381,12 @@ class ConditionalERA5HistHourly(TaskRule):
 
 
 class ConditionalERA5HistHourlyMCSLifecycle(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year, month):
-        e5inputs, e5proc_shear, e5proc_vimfd, pixel_on_e5_inputs, e5lsm = conditional_inputs(year, month)
-        inputs = {
-            **e5inputs,
-            **e5proc_shear,
-            **e5proc_vimfd,
-            **pixel_on_e5_inputs,
-            **e5lsm,
-        }
+        inputs = conditional_inputs(
+            year, month
+        )
         return inputs
 
     rule_outputs = {'hist': cu.FMT_PATH_COND_MCS_LIFECYCLE_HIST_HOURLY}
@@ -457,14 +468,9 @@ class ConditionalERA5HistHourlyMCSLifecycle(TaskRule):
 class ConditionalERA5HistGridpoint(TaskRule):
     @staticmethod
     def rule_inputs(year, month):
-        e5inputs, e5proc_shear, e5proc_vimfd, pixel_on_e5_inputs, e5lsm = conditional_inputs(year, month)
-        inputs = {
-            **e5inputs,
-            **e5proc_shear,
-            **e5proc_vimfd,
-            **pixel_on_e5_inputs,
-            **e5lsm,
-        }
+        inputs = conditional_inputs(
+            year, month
+        )
         return inputs
 
     rule_outputs = {'hist': cu.FMT_PATH_COND_HIST_GRIDPOINT}
@@ -475,6 +481,8 @@ class ConditionalERA5HistGridpoint(TaskRule):
     }
 
     depends_on = [conditional_load_mcs_data, conditional_load_data, cu.load_lsmask, cu.get_bins, gen_region_masks]
+    # Running out of mem with 64000.
+    config = {'slurm': {'mem': 256000, 'partition': 'high-mem'}}
 
     def build_gridpoint_output_dataset(self, pixel_on_e5):
         # Build inputs to Dataset
@@ -540,13 +548,20 @@ class ConditionalERA5HistGridpoint(TaskRule):
 
 
 class ConditionalERA5HistMeanfield(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year, month):
-        e5inputs, e5proc_shear, e5proc_vimfd, pixel_on_e5_inputs, e5lsm = conditional_inputs(year, month)
+        cond_inputs = conditional_inputs(
+            year, month
+        )
+        # Filter out unneeded.
+        cond_inputs = {k: v
+                  for k, v in cond_inputs.items()
+                  if (k.startswith('pixel_on_e5') or k == 'ERA5_land_sea_mask' or k == 'tracks')}
+
         e5meanfield_inputs = meanfield_conditional_inputs()
         inputs = {
-            **pixel_on_e5_inputs,
-            **e5lsm,
+            **cond_inputs,
             **e5meanfield_inputs,
         }
         return inputs
@@ -605,6 +620,7 @@ class ConditionalERA5HistMeanfield(TaskRule):
 
 
 class CombineConditionalERA5HistGridpoint(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year):
         inputs = {
@@ -617,7 +633,7 @@ class CombineConditionalERA5HistGridpoint(TaskRule):
 
     var_matrix = {'year': cu.YEARS}
     # Takes a lot of mem to combine these datasets!
-    config = {'slurm': {'mem': 512000, 'partition': 'high-mem'}}
+    config = {'slurm': {'mem': 800000, 'partition': 'high-mem'}}
 
     def rule_run(self):
         datasets = [xr.open_dataset(p) for p in self.inputs.values()]

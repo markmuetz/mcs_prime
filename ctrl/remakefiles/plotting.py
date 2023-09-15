@@ -366,6 +366,8 @@ def plot_gridpoint_2d_prob_dist(ds, var, pmin=25, pmax=75, step=16):
         aspect = 1/300
     elif var.startswith('shear'):
         aspect = 100
+    else:
+        aspect = 100
     plt.imshow(h.T, origin='lower', extent=(ds[f'{var}_hist_mids'].values[0], ds[f'{var}_hist_mids'].values[-1], 0, 1), aspect=aspect)
     dmin, d50, dmax = np.nanpercentile(d, [pmin, 50, pmax], axis=(0, 1))
 

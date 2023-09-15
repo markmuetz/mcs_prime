@@ -319,7 +319,6 @@ class PrecursorConditionalERA5HistHourly(TaskRule):
 
 
 class ConditionalERA5HistHourly(TaskRule):
-    enabled = False
     @staticmethod
     def rule_inputs(year, month, core_method):
         inputs = conditional_inputs(
@@ -381,7 +380,6 @@ class ConditionalERA5HistHourly(TaskRule):
 
 
 class ConditionalERA5HistHourlyMCSLifecycle(TaskRule):
-    enabled = False
     @staticmethod
     def rule_inputs(year, month):
         inputs = conditional_inputs(
@@ -548,7 +546,6 @@ class ConditionalERA5HistGridpoint(TaskRule):
 
 
 class ConditionalERA5HistMeanfield(TaskRule):
-    enabled = False
     @staticmethod
     def rule_inputs(year, month):
         cond_inputs = conditional_inputs(
@@ -620,7 +617,6 @@ class ConditionalERA5HistMeanfield(TaskRule):
 
 
 class CombineConditionalERA5HistGridpoint(TaskRule):
-    enabled = False
     @staticmethod
     def rule_inputs(year):
         inputs = {

@@ -1,3 +1,23 @@
+"""Remakefile to do processing of ERA5/MCS Pixel input data.
+
+ERA5:
+* Shear
+* Vertically Integrated Moisture Flux Divergence (VIMFD)
+* Deltas of CAPE, TCWV
+* Layer means of RH, theta_e
+* Monthly means
+
+MCS Pixel (Feng et al. 2021)
+* Regrid to ERA5 grid (i.e. coarsen)
+
+ERA5 model levels count down - model level 0 is the highest, model level 137/-1 is the surface.
+Note, they are 0 indexed: https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
+
+References:
+* Feng et al. (2021), A global high-resolution mesoscale convective system database using satellite-derived cloud tops, surface precipitation, and tracking
+* B. Chen, Chuntao Liu, and Mapes (2017), Relationships between large precipitating systems and atmospheric factors at a grid scale
+* X. Chen et al. (2023), Environmental controls on MCS lifetime rainfall over tropical oceans
+"""
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -8,24 +28,13 @@ from remake.util import format_path as fmtp
 
 import mcs_prime.mcs_prime_config_util as cu
 
-TODOS = '''
-TODOS
-* Make sure filenames are consistent
-* Make sure variables names are sensible/consistent
-* Docstrings for all fns, classes
-* Validate all data
-* Consistent attrs for all created .nc files
-* Units on data vars etc.
-'''
-print(TODOS)
-
 
 slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '20:00:00'}
 era5_process = Remake(config=dict(slurm=slurm_config, content_checks=False, no_check_input_exist=True))
 
 pixel_inputs_cache = cu.PixelInputsCache()
 
-# Extend years/months for shear, VIMDF because I need to have the first value preceding/following
+# Extend years/months for shear, VIMFD because I need to have the first value preceding/following
 # each year for interp to MCS times (ERA5 on the hour, MCS on the half hour).
 EXTENDED_YEARS_MONTHS = []
 for y in cu.YEARS:
@@ -58,6 +67,11 @@ class GenRegridder(TaskRule):
 
 
 class CalcERA5Shear(TaskRule):
+    """Calculate shear from ERA5 u, v values at 3 levels
+
+    Uses ERA5 model levels 136, 111, 100, 90 (pressure levels of approx. 1000, 800, 600, 400 hPa).
+    Calculates a shear between each adjacent level, and between the surface and highest levels.
+    """
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
@@ -83,6 +97,7 @@ class CalcERA5Shear(TaskRule):
     }
 
     def rule_run(self):
+        # These are ERA5 model levels.
         # https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
         levels = [
             136,  # 1010hPa/31m
@@ -102,17 +117,30 @@ class CalcERA5Shear(TaskRule):
                 u = e5data.u.values
                 v = e5data.v.values
 
-            # Calc LLS (1010-804), Low-to-mid shear (804-610), MLS (1010-610) in one line.
+            # Calc LLS (1010-804), Low-to-mid shear (804-590), Mid-to-high (590-399), deep shear in one line.
             # LLS = shear[:, :, 0]
             # Low-to-Mid shear = shear[:, :, 1]
-            # MLS = shear[:, :, 2]
+            # Mid-to-High = shear[:, :, 2]
+            # Deep shear = shear[:, :, 3]
             # axis 1 is the level axis.
             shear = np.sqrt((np.roll(u, -1, axis=0) - u) ** 2 + (np.roll(v, -1, axis=0) - v) ** 2)
-            attrs={
-                'shear_0': 'Low-level shear: shear between surf and 800 hPa (ERA5 136-111)',
-                'shear_1': 'Low-to-mid shear: shear between 800 and 600 hPa (ERA5 111-100)',
-                'shear_2': 'mid-to-high shear: shear between 600 and 400 hPa (ERA5 100-90)',
-                'shear_3': 'Deep shear: shear between surf and 400 hPa (ERA5 136-90)',
+            attrs = {
+                'shear_0': {
+                    'description': 'Low-level shear: shear between surf and 800 hPa (ERA5 136-111)',
+                    'units': 'm * s**-1',
+                },
+                'shear_1': {
+                    'description': 'Low-to-mid shear: shear between 800 and 600 hPa (ERA5 111-100)',
+                    'units': 'm * s**-1',
+                },
+                'shear_2': {
+                    'description': 'Mid-to-high shear: shear between 600 and 400 hPa (ERA5 100-90)',
+                    'units': 'm * s**-1',
+                },
+                'shear_3': {
+                    'description': 'Deep shear: shear between surf and 400 hPa (ERA5 136-90)',
+                    'units': 'm * s**-1',
+                },
             }
             dsout = xr.Dataset(
                 coords=dict(
@@ -121,13 +149,14 @@ class CalcERA5Shear(TaskRule):
                     longitude=e5data.longitude,
                 ),
                 data_vars={
-                    f'shear_{i}': (('latitude', 'longitude'), shear[i, :, :], {'description': attrs[f'shear_{i}']})
+                    f'shear_{i}': (('latitude', 'longitude'), shear[i, :, :], attrs[f'shear_{i}'])
                     for i in range(len(levels))
                 },
             )
             cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'shear_{time}'])
 
 
+# Used for VIMFD calc.
 def calc_mf_u(rho, q, u):
     """Calculates the x-component of density-weighted moisture flux on a c-grid"""
 
@@ -166,6 +195,15 @@ def calc_div_mf(rho, q, u, v, dx, dy):
 
 
 class CalcERA5VIMoistureFluxDiv(TaskRule):
+    """Calculate the vertically integrated moisture flux divergence
+
+    This is quite an involved calculation:
+    * Use ERA5 u, v, T, q, and lnsp as inputs.
+    * Calculate rho from lnsp (by calc'ing p, Tv, then rho using ERA5Calc.
+    * Calculate u, v moisture flux (rho q u) on c-grid.
+    * Calculate divergence of moisture flux on original grid (loses lat extremes)
+    * Do pressure-weighted integral over atmosphere.
+    """
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
@@ -232,24 +270,38 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
 
             div_mf = calc_div_mf(rho, q, u, v, dx, dy)
 
-            # Pressure weighted integral.
+            # Pressure-weighted integral.
             # Int_ps^pt(1 / (rho g) div_mf, dp)
             dp = p[1:] - p[:-1]
             vimfd = (1 / (rho[:, 1:-1, :] * g) * div_mf * dp[:, 1:-1, :]).sum(axis=0)
+            # TODO: Need to check the units on this!
+            raise Exception('TODO: Check units!')
 
+            attrs = {
+                'description': 'pressure-weighted vertical integral of moisture flux divergence',
+                'units': 'kg * s**3 * m**-2',
+            }
             dsout = xr.Dataset(
                 coords=dict(
                     time=[time],
                     latitude=latitude[1:-1],
                     longitude=longitude,
                 ),
-                data_vars={'vertically_integrated_moisture_flux_div': (('latitude', 'longitude'), vimfd)},
+                data_vars={'vertically_integrated_moisture_flux_div': (('latitude', 'longitude'), vimfd, attrs)},
             )
             print(dsout)
             cu.to_netcdf_tmp_then_copy(dsout, self.outputs[f'vimfd_{time}'])
 
 
 class CalcERA5LayerMeans(TaskRule):
+    """Calculate layer means of certain ERA5 variables
+
+    * RHlow: surf-850 hPa
+    * RHmid: 700-400 hPa
+    * theta_e_mid: 850-750 hPa
+    Definitions taken from B. Chen et al., 2017 for RHx2.
+    And from X. Chen et al. 2021 for theta_e (from their Fig. 1a, by eye).
+    """
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
@@ -294,16 +346,21 @@ class CalcERA5LayerMeans(TaskRule):
                 latitude = e5data.latitude
 
             p = e5calc.calc_pressure(lnsp)
-            # 114: 856 hPa - https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
+            # See for model level to pressure:
+            # https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
+            # 114: 856 hPa
             RHlow = e5calc.calc_RH(p[114:], T[114:], q[114:]).mean(axis=0)
 
-            # 90: 407 hPa - https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
-            # 105: 703 hPa - https://confluence.ecmwf.int/display/UDOC/L137+model+level+definitions
+            # 90: 407 hPa
+            # 105: 703 hPa
             RHmid = e5calc.calc_RH(p[90:106], T[90:106], q[90:106]).mean(axis=0)
 
             # 107: 742 hPa
             # 114: 857 hPa
             theta_e_mid = e5calc.calc_theta_e(p[107:115], T[107:115], q[107:115]).mean(axis=0)
+            RHlow_attrs = {'ERA5 model layers': 'surf-114 (surf-856 hPa)', 'units': ''}
+            RHmid_attrs = {'ERA5 model layers': '105-90 (703-407 hPa)', 'units': ''}
+            theta_e_mid_attrs = {'ERA5 model layers': '114-107 (857-742 hPa)', 'units': 'K'}
 
             dsout = xr.Dataset(
                 coords=dict(
@@ -312,9 +369,9 @@ class CalcERA5LayerMeans(TaskRule):
                     longitude=longitude,
                 ),
                 data_vars={
-                    'RHlow': (('latitude', 'longitude'), RHlow, {'ERA5 model layers': 'surf-114 (surf-856 hPa)'}),
-                    'RHmid': (('latitude', 'longitude'), RHmid, {'ERA5 model layers': '105-90 (703-407 hPa)'}),
-                    'theta_e_mid': (('latitude', 'longitude'), theta_e_mid, {'ERA5 model layers': '114-107 (857-742 hPa)'}),
+                    'RHlow': (('latitude', 'longitude'), RHlow, RHlow_attrs),
+                    'RHmid': (('latitude', 'longitude'), RHmid, RHmid_attrs),
+                    'theta_e_mid': (('latitude', 'longitude'), theta_e_mid, theta_e_mid_attrs),
                 },
             )
             print(dsout)
@@ -322,6 +379,10 @@ class CalcERA5LayerMeans(TaskRule):
 
 
 class CalcERA5Delta(TaskRule):
+    """Calculate deltas of CAPE, TCWV over 3 hours.
+
+    Stored at the future point - i.e. CAPE(t=0) - CAPE(t=-3) stored at t=0.
+    """
     @staticmethod
     def rule_inputs(year, month):
         start = pd.Timestamp(year, month, 1) - pd.Timedelta(hours=3)
@@ -334,6 +395,8 @@ class CalcERA5Delta(TaskRule):
             for t in e5times
             for var in ['cape', 'tcwv']
         }
+        # Slightly tricky to do derived variables because I need 3 hours prev. (these are guaranteed to be
+        # there for ERA5.
         # fmt = cu.FMT_PATH_ERA5P_VIMFD
         # e5inputs.update({
         #     f'era5_{t}_vertically_integrated_moisture_flux_div': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour)
@@ -355,7 +418,6 @@ class CalcERA5Delta(TaskRule):
     }
 
     def rule_run(self):
-        # print('\n'.join(str(p) for p in self.inputs.values()))
         e5vars = ['cape', 'tcwv']
         e5times = cu.gen_era5_times_for_month(self.year, self.month)
 
@@ -375,6 +437,16 @@ class CalcERA5Delta(TaskRule):
             dsout = e5data.isel(time=1) - e5data.isel(time=0)
             dsout = dsout.rename({var: f'delta_3h_{var}'
                                   for var in e5vars})
+            CAPE_attrs = {
+                'description': '3 hour delta of CAPE (CAPE(t=0) - CAPE(t=-3), stored at t=0',
+                'units': 'J * kg**-1'
+            }
+            TCWV_attrs = {
+                'description': '3 hour delta of TCWV (TCWV(t=0) - TCWV(t=-3), stored at t=0',
+                'units': 'mm'
+            }
+            dsout['delta_3h_CAPE'].attrs = CAPE_attrs
+            dsout['delta_3h_TCWV'].attrs = TCWV_attrs
             dsout = dsout.assign_coords({'time': [time]})
 
             print(dsout)
@@ -489,10 +561,17 @@ class GenPixelDataOnERA5Grid(TaskRule):
             precipitation_on_e5g = regridder(pixel_precip)
 
             dsout.cloudnumber.values = cn_on_e5g
+            dsout.cloudnumber.attrs.update({'units': ''})
             dsout.tb.values = tb_on_e5g
+            dsout.tb.attrs.update({'units': 'K'})
             dsout.precipitation.values = precipitation_on_e5g
+            dsout.tb.attrs.update({'units': 'mm * hr**-1'})
             # N.B. I have checked that the max cloudnumber (1453) in the tracks dataset is < 2**16
             # assert cns.max() < 2**16 - 1
+            dsout.attrs.update({
+                'description': 'Pixel data from Feng et al. 2021 (https://doi.org/10.1029/2020JD034202)',
+                'regridding': 'Regridded onto ERA5 grid',
+            })
 
             encoding = {
                 # Save cloudnumber as compressed int16 field for lots of compression!
@@ -505,6 +584,7 @@ class GenPixelDataOnERA5Grid(TaskRule):
 
 
 class CalcERA5MeanField(TaskRule):
+    """Calculate monthly mean field for base and derived ERA5 variables from hourly data"""
     @staticmethod
     def rule_inputs(year, month):
         # start = pd.Timestamp(year, month, 1)
@@ -555,6 +635,7 @@ class CalcERA5MeanField(TaskRule):
         dsout = dsout.expand_dims({'time': 1})
         dsout = dsout.assign_coords({'time': [pd.Timestamp(ds.time.mean().item())]})
         dsout.attrs['ntimes'] = len(ds.time)
+        dsout.attrs['description'] = 'monthly mean fields from hourly ERA5 data'
         print(dsout)
 
         comp = dict(zlib=True, complevel=4)

@@ -1,7 +1,9 @@
+import inspect
 import socket
 import warnings
 import pickle
 import shutil
+import traceback
 from hashlib import sha1
 from pathlib import Path
 
@@ -11,6 +13,9 @@ import numpy as np
 import pandas as pd
 import psutil
 import xarray as xr
+
+import remake
+from remake import util
 
 
 # Define paths on different systems. The most important ones are "jasmin".
@@ -110,7 +115,7 @@ YEARS_MONTHS = [(y, m) for y in YEARS for m in MONTHS]
 
 # Define static paths. Done in a system-agnostic way.
 PATH_ERA5_MODEL_LEVELS = PATHS['datadir'] / 'ERA5/ERA5_L137_model_levels_table.csv'
-PATH_REGRIDDER = PATHS['outdir'] / 'conditional_era5_histograms' / 'regridder' / 'bilinear_1200x3600_481x1440_peri.nc'
+PATH_REGRIDDER = PATHS['outdir'] / / 'pixel_to_era5_regridder' / 'bilinear_1200x3600_481x1440_peri.nc'
 PATH_ERA5_LAND_SEA_MASK = PATHS['era5dir'] / 'data/invariants/ecmwf-era5_oper_an_sfc_200001010000.lsm.inv.nc'
 PATH_LAT_LON_DISTS = PATHS['outdir'] / 'mcs_local_envs' / 'lat_lon_distances.nc'
 
@@ -177,6 +182,10 @@ FMT_PATH_ERA5P_DELTA = (
     / 'era5_processed/{year}/{month:02d}/{day:02d}'
     / 'ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_delta.nc'
 )
+FMT_PATH_ERA5_MEANFIELD = (
+    PATHS['outdir'] / 'era5_processed' / '{year}' / 'era5_mean_field_{year}_{month:02d}.nc'
+)
+
 # MCS pixel data regridded to ERA5 grid (i.e. coarsened).
 # =======================================================
 # mcs_track_pixel_on_era5_grid
@@ -190,9 +199,6 @@ FMT_PATH_PIXEL_ON_ERA5 = (
 # Conditional histograms paths.
 # =============================
 # conditional_era5_histograms
-FMT_PATH_ERA5_MEANFIELD = (
-    PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'era5_mean_field_{year}_{month:02d}.nc'
-)
 FMT_PATH_PRECURSOR_COND_HIST = (
     PATHS['outdir']
     / 'conditional_era5_histograms'
@@ -364,6 +370,8 @@ def to_netcdf_tmp_then_copy(ds, outpath, encoding=None):
     Writing to this disk then copying is *MASSIVELY* faster.
     I think it is to do with writing NetCDF4 data to GWS is slow.
 
+    Also, writes detailed metadata to netcdf.
+
     See: https://help.jasmin.ac.uk/article/176-storage
     Changed to nopw2 in July 23:
     /work/scratch-nopw[RO from 11July2023]
@@ -374,6 +382,31 @@ def to_netcdf_tmp_then_copy(ds, outpath, encoding=None):
     assert outpath.is_absolute()
     tmppath = tmpdir / Path(*outpath.parts[1:])
     tmppath.parent.mkdir(exist_ok=True, parents=True)
+
+    # Add some metadata to the netcdf file.
+    stack = next(traceback.walk_stack(None))
+    frame = stack[0]
+    calling_file = frame.f_globals['__file__']
+    calling_obj = frame.f_locals['self']
+    calling_obj_doc = calling_obj.__doc__
+    calling_class_name = calling_obj.__class__.__name__
+    output_path_actual = util.tmp_to_actual_path(outpath)
+
+    nodename = socket.gethostname()
+    remake_version = remake.__version__
+
+    metadata_attrs = {
+        'created by': f'{calling_file}: {calling_class_name}',
+        'calling file source': Path(calling_file).read_text(),
+        f'remake version': remake_version,
+        f'task': f'{calling_obj}',
+        f'task doc': f'{calling_obj_doc}',
+        'created on': str(pd.Timestamp.now()),
+        'nodename': nodename,
+        'hostname': hostname,
+        'output path': str(output_path_actual),
+    }
+    ds.attrs.update(metadata_attrs)
 
     ds.to_netcdf(tmppath, encoding=encoding)
     shutil.move(tmppath, outpath)

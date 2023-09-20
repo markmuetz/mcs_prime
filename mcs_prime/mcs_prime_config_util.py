@@ -13,24 +13,16 @@ import psutil
 import xarray as xr
 
 
-
+# Define paths on different systems. The most important ones are "jasmin".
 ALL_PATHS = {
     "mistakenot": {
         "datadir": Path("/home/markmuetz/Datasets/MCS_PRIME"),
-        "statsdir": Path(
-            "/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/stats"
-        ),
-        "pixeldir": Path(
-            "/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/mcstracking"
-        ),
-        "simdir": Path(
-            "/home/markmuetz/mirrors/jasmin/gws/nopw/j04/mcsprime/mmuetz/data/UM_sims/"
-        ),
+        "statsdir": Path("/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/stats"),
+        "pixeldir": Path("/home/markmuetz/Datasets/MCS_PRIME/MCS_database/MCS_Global/mcstracking"),
+        "simdir": Path("/home/markmuetz/mirrors/jasmin/gws/nopw/j04/mcsprime/mmuetz/data/UM_sims/"),
         "outdir": Path("/home/markmuetz/MCS_PRIME_output/output"),
         "figdir": Path("/home/markmuetz/MCS_PRIME_output/figs"),
-        "dropboxdir": Path(
-            "/home/markmuetz/Dropbox/Academic/Projects/MCS_PRIME/Shared/MCS_PRIME_figures"
-        ),
+        "dropboxdir": Path("/home/markmuetz/Dropbox/Academic/Projects/MCS_PRIME/Shared/MCS_PRIME_figures"),
     },
     "jasmin": {
         "datadir": Path("/gws/nopw/j04/mcs_prime/mmuetz/data/"),
@@ -57,11 +49,13 @@ if hostname[:4] == "host" or hostname == "jupyter-mmuetz":
 if hostname not in ALL_PATHS:
     raise Exception(f"Unknown hostname: {hostname}")
 
+# PATHS is system specific.
 PATHS = ALL_PATHS[hostname]
 for k, path in PATHS.items():
     if not path.exists():
         warnings.warn(f"Warning: path missing {k}: {path}")
 
+# These are from Zhe Feng's tracking dataset.
 # Generated using:
 # dict((int(v[0]), v[1].strip()) for v in [l.strip().split(':') for l in tracks.dstracks.track_status.attrs['comments'].split(';')]))
 STATUS_DICT = {
@@ -88,13 +82,16 @@ STATUS_DICT = {
     65: "Merge-split at same time (smaller merge, splitter, small split)",
 }
 
+# Which years will be active for processing/analysis.
 # YEARS = list(range(2000, 2021))
-YEARS = [2020]
+YEARS = [2018]
 MONTHS = range(1, 13)
 # MONTHS = [2]
 
+# Radii for MCS local environments (mcs_local_envs.py).
 RADII = [1, 100, 200, 500, 1000]
 
+# Reusable list of ERA5 base and derived variables (internal names).
 ERA5VARS = ['cape', 'tcwv']
 SHEAR_ERA5VARS = ['shear_0', 'shear_1', 'shear_2', 'shear_3']
 VIMFD_ERA5VARS = ['vertically_integrated_moisture_flux_div']
@@ -103,63 +100,96 @@ DELTA_ERA5VARS = ['delta_3h_cape', 'delta_3h_tcwv']
 PROC_ERA5VARS = SHEAR_ERA5VARS + VIMFD_ERA5VARS + LAYER_MEANS_ERA5VARS + DELTA_ERA5VARS
 EXTENDED_ERA5VARS = ERA5VARS + PROC_ERA5VARS
 
+# Different regions.
 LS_REGIONS = ['all', 'land', 'ocean']
 
+# Some tasks work on a year/month/day, others on year/month. Construct suitable time ranges.
 DATES = pd.date_range(f'{YEARS[0]}-01-01', f'{YEARS[-1]}-12-31')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
 YEARS_MONTHS = [(y, m) for y in YEARS for m in MONTHS]
 
+# Define static paths. Done in a system-agnostic way.
 PATH_ERA5_MODEL_LEVELS = PATHS['datadir'] / 'ERA5/ERA5_L137_model_levels_table.csv'
 PATH_REGRIDDER = PATHS['outdir'] / 'conditional_era5_histograms' / 'regridder' / 'bilinear_1200x3600_481x1440_peri.nc'
 PATH_ERA5_LAND_SEA_MASK = PATHS['era5dir'] / 'data/invariants/ecmwf-era5_oper_an_sfc_200001010000.lsm.inv.nc'
 PATH_LAT_LON_DISTS = PATHS['outdir'] / 'mcs_local_envs' / 'lat_lon_distances.nc'
 
+# Dynamic format paths
+# ====================
+#
+# Define dynamic format paths. Done in a system-agnostic way.
+# Reusable across different remakefiles because they are a top-level import.
+# Each one can be used by using remake.format_path(FMT_PATH, year=2000...)
+# Every variable in the format path must be passed in. Extra variables will be silently ignored.
+
+# ERA5 base paths.
 FMT_PATH_ERA5_ML = (
     PATHS['era5dir']
     / 'data/oper/an_ml/{year}/{month:02d}/{day:02d}'
-    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}' '{hour:02d}00.{var}.nc')
+    / 'ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.{var}.nc'
 )
+# From (JASMIN): /badc/ecmwf-era5/data/oper/an_ml/2001/00README
+#
+# ERA5 Model level data - 2000-2006: WARNING
+# ==========================================
+# ERA5 data for 2000-2006 was found to suffer from statospheric cold biases.
+# As such users should make use of the ERA5.1 data for this period.
+# Please see the associated dataset catalgoue records in the CEDA Data Catalogue for links to the ERA5.1 datasets.
+#
+# See for more details: https://www.ecmwf.int/en/elibrary/81149-global-stratospheric-temperature-bias-and-other-stratospheric-aspects-era5-and
 FMT_PATH_ERA51_ML = (
     PATHS['era5dir']
     / 'data/oper/an_ml/{year}/era5.1_{year}_data/{month:02d}/{day:02d}'
-    / ('ecmwf-era51_oper_an_ml_{year}{month:02d}{day:02d}' '{hour:02d}00.{var}.nc')
+    / 'ecmwf-era51_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.{var}.nc'
 )
 FMT_PATH_ERA5_SFC = (
     PATHS['era5dir']
     / 'data/oper/an_sfc/{year}/{month:02d}/{day:02d}'
-    / ('ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}' '{hour:02d}00.{var}.nc')
+    / 'ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}{hour:02d}00.{var}.nc'
 )
-FMT_PATH_ERA51_SFC = (
-    PATHS['era5dir']
-    / 'data/oper/an_sfc/{year}/era5.1_{year}_data/{month:02d}/{day:02d}'
-    / ('ecmwf-era51_oper_an_sfc_{year}{month:02d}{day:02d}' '{hour:02d}00.{var}.nc')
-)
+# Bias ONLY affected stratosphere - no change in surface vars.
+# FMT_PATH_ERA51_SFC = (
+#     PATHS['era5dir']
+#     / 'data/oper/an_sfc/{year}/era5.1_{year}_data/{month:02d}/{day:02d}'
+#     / 'ecmwf-era51_oper_an_sfc_{year}{month:02d}{day:02d}{hour:02d}00.{var}.nc'
+# )
+
+# ERA5 processed paths (ERA5P)
+# ============================
+# era5_processed
 FMT_PATH_ERA5P_SHEAR = (
     PATHS['outdir']
     / 'era5_processed/{year}/{month:02d}/{day:02d}'
-    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}' '{hour:02d}00.proc_shear.nc')
+    / 'ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_shear.nc'
 )
 FMT_PATH_ERA5P_VIMFD = (
     PATHS['outdir']
     / 'era5_processed/{year}/{month:02d}/{day:02d}'
-    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}' '{hour:02d}00.proc_vimfd.nc')
+    / 'ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_vimfd.nc'
 )
 FMT_PATH_ERA5P_LAYER_MEANS = (
     PATHS['outdir']
     / 'era5_processed/{year}/{month:02d}/{day:02d}'
-    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_layer_means.nc')
+    / 'ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_layer_means.nc'
 )
 FMT_PATH_ERA5P_DELTA = (
     PATHS['outdir']
     / 'era5_processed/{year}/{month:02d}/{day:02d}'
-    / ('ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_delta.nc')
+    / 'ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_delta.nc'
 )
+# MCS pixel data regridded to ERA5 grid (i.e. coarsened).
+# =======================================================
+# mcs_track_pixel_on_era5_grid
 FMT_PATH_PIXEL_ON_ERA5 = (
     PATHS['outdir']
     / 'mcs_track_pixel_on_era5_grid'
     / '{year}/{month:02d}/{day:02d}'
     / 'mcstrack_on_era5_grid_{year}{month:02d}{day:02d}{hour:02d}30.nc'
 )
+
+# Conditional histograms paths.
+# =============================
+# conditional_era5_histograms
 FMT_PATH_ERA5_MEANFIELD = (
     PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'era5_mean_field_{year}_{month:02d}.nc'
 )
@@ -184,6 +214,10 @@ FMT_PATH_COND_HIST_MEANFIELD = (
 FMT_PATH_COMBINED_COND_HIST_GRIDPOINT = (
     PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'gridpoint_hist_{year}.nc'
 )
+
+# MCS local envs paths.
+# =====================
+# mcs_local_envs
 FMT_PATH_CHECK_LAT_LON_DISTS_FIG = (
     PATHS['figdir'] / 'mcs_local_envs' / 'check_figs' / 'lat_lon_distances_{lat}_{lon}_{radius}.png'
 )
@@ -192,18 +226,20 @@ FMT_PATH_MCS_LOCAL_ENV = (
     / 'mcs_local_envs'
     / '{year}'
     / '{month:02d}'
-    / 'mcs_local_env_{mode} {year}_{month:02d}_{day:02d}.nc'
+    / 'mcs_local_env_{mode}_{year}_{month:02d}_{day:02d}.nc'
 )
 FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV = (
     PATHS['outdir'] / 'mcs_local_envs' / '{year}' / '{month:02d}' / 'lifecycle_mcs_local_env_{year}_{month:02d}.nc'
 )
 FMT_PATH_CHECK_MCS_LOCAL_ENV = PATHS['figdir'] / 'mcs_local_envs' / 'check_figs' / 'mcs_local_env_r{radius}km.png'
 FMT_PATH_COMBINE_MCS_LOCAL_ENV = (
-    PATHS['outdir'] / 'mcs_local_envs' / '{year}' / '{month:02d}' / 'mcs_local_env_{mode}_{year}_{month:02d}.nc'
+    PATHS['outdir'] / 'mcs_local_envs' / '{year}' / 'monthly_mcs_local_env_{mode}_{year}_{month:02d}.nc'
 )
 
-
+# Path formatting helpers.
+# ========================
 def fmt_mcs_stats_path(year):
+    """Format MCS stats path handling different start date for 2000"""
     if year == 2000:
         start_date = '20000601'
     else:
@@ -212,6 +248,7 @@ def fmt_mcs_stats_path(year):
 
 
 def fmt_mcs_pixel_path(year, month, day, hour):
+    """Format MCS pixel path handling different start date for 2000"""
     if year == 2000:
         start_date = '20000601'
     else:
@@ -224,6 +261,7 @@ def fmt_mcs_pixel_path(year, month, day, hour):
 
 
 def gen_pixel_times_for_day(year, month, day):
+    """Generate Pixel times for one day"""
     start = pd.Timestamp(year, month, day, 0, 30)
     end = start + pd.Timedelta(days=1) - pd.Timedelta(hours=1)
     pixel_times = pd.date_range(start, end, freq='H')
@@ -235,7 +273,10 @@ class PixelInputsCache:
 
     It is a slow process working out whether all the pixel files exist or not.
     Cache results so that I don't have to do this in any rule_inputs/rule_outputs,
-    which dramatically slows down creating instances of tasks."""
+    which dramatically slows down creating instances of tasks.
+
+    Generated for a given choice of YEARS, MONTHS - will be regenerated
+    if these changed and hasn't already been generated."""
 
     def __init__(self):
         hexkey = sha1(str((YEARS, MONTHS)).encode()).hexdigest()
@@ -290,30 +331,11 @@ def round_times_to_nearest_second(dstracks, fields):
     for field in fields:
         dstracks[field].load()
         tmask = ~np.isnan(dstracks[field].values)
-        dstracks[field].values[tmask] = remove_time_incaccuracy(
-            dstracks[field].values[tmask]
-        )
-
-
-def update_progress(progress, bar_length=20):
-    if isinstance(progress, int):
-        progress = float(progress)
-    if not isinstance(progress, float):
-        progress = 0
-    if progress < 0:
-        progress = 0
-    if progress >= 1:
-        progress = 1
-
-    block = int(round(bar_length * progress))
-    clear_output(wait=True)
-    text = "Progress: [{0}] {1:.1f}%".format(
-        "#" * block + "-" * (bar_length - block), progress * 100
-    )
-    print(text)
+        dstracks[field].values[tmask] = remove_time_incaccuracy(dstracks[field].values[tmask])
 
 
 def print_mem_usage(format='bytes'):
+    """Helper to print Python script memory usage in chosen format"""
     factor_map = {
         'bytes': 1,
         'B': 1,
@@ -328,21 +350,24 @@ def print_mem_usage(format='bytes'):
     print(f'{mem_usage_bytes / factor:.2f} {format}')
 
 
-def gen_era5_times_for_month(year, month, include_precursor_offset=True):
+def gen_era5_times_for_month(year, month):
+    """Generate ERA5 times for one month."""
     start = pd.Timestamp(year, month, 1)
     end = start + pd.DateOffset(months=1) - pd.Timedelta(hours=1)
-    # Make sure there are enough precursor values.
-    # if include_precursor_offset and year == 2020 and month == 1:
-    #     start -= pd.Timedelta(hours=6)
-    # This is the final year - I need to make sure that
-    # the first ERA5 file for 2021 is also made for e.g. CalcERA5Shear.
-    # if year == 2020 and month == 12:
-    #     end += pd.Timedelta(hours=1)
     e5times = pd.date_range(start, end, freq='H')
     return e5times
 
 
 def to_netcdf_tmp_then_copy(ds, outpath, encoding=None):
+    """Helper to write output to a JASMIN scratch dir, then copy to desired location.
+
+    Writing to this disk then copying is *MASSIVELY* faster.
+    I think it is to do with writing NetCDF4 data to GWS is slow.
+
+    See: https://help.jasmin.ac.uk/article/176-storage
+    Changed to nopw2 in July 23:
+    /work/scratch-nopw[RO from 11July2023]
+    """
     if encoding is None:
         encoding = {}
     tmpdir = Path('/work/scratch-nopw2/mmuetz')
@@ -355,19 +380,23 @@ def to_netcdf_tmp_then_copy(ds, outpath, encoding=None):
 
 
 def lon_180_to_360(v):
+    """Convert a lon from -180 to 180 format to 0 to 360"""
     return np.where(v < 0, v + 360, v)
 
 
 def lon_360_to_180(v):
+    """Convert a lon from 0 to 360 format to -180 to 180"""
     return np.where(v > 180, v - 360, v)
 
 
 def find_nearest(array, value):
+    """Find the index of the nearest value in an np.array"""
     idx = (np.abs(array - value)).argmin()
     return idx
 
 
 def find_nearest_circular(array, value):
+    """Find the index of the nearest value in a circular np.array"""
     # Convert array and value to radians
     array_rad = np.radians(array)
     value_rad = np.radians(value)
@@ -381,6 +410,7 @@ def find_nearest_circular(array, value):
 
 
 def get_bins(var):
+    """Bins used for histograms for each of these variables"""
     if var == 'cape':
         bins = np.linspace(0, 5000, 101)
     elif var == 'tcwv':
@@ -404,6 +434,7 @@ def get_bins(var):
 
 
 def load_lsmask(path):
+    """Load the land-sea mask from the given path"""
     lsmask = {}
     for lsreg in LS_REGIONS:
         # Build appropriate land-sea mask for region.
@@ -442,23 +473,27 @@ def xr_add_cyclic_point(da, lon_name='longitude'):
     new_coords[lon_name] = wrap_lon
 
     # Generate output DataArray with new data but same structure as input.
-    out_da = xr.DataArray(data=wrap_data,
-                          name=da.name,
-                          coords=new_coords,
-                          dims=da.dims,
-                          attrs=da.attrs)
+    out_da = xr.DataArray(data=wrap_data, name=da.name, coords=new_coords, dims=da.dims, attrs=da.attrs)
     return out_da
 
 
-def rmse(a, b):
-    return np.sqrt(np.nanmean((a[None, None, :] - b)**2, axis=2))
-
-
-def integral_diff(a, b, dx):
-    return np.nansum(b - a[None, None, :], axis=2) * dx
-
-
 def gen_region_masks(logger, pixel_on_e5, tracks, core_method='tb'):
+    """Core function to generate MCS region masks from Pixel and tracks data
+
+    Uses Zhe Feng's dataset.
+    * Pixel data is on ERA5 grid.
+    * Can use either tb (brightness T) or precip to define core based on threshold.
+
+    Scheme:
+    * Loop over times, getting cloudnumbers of MCSs from tracks dataset.
+    * Use these to define 5 mutually exclusive regions based on threshold values.
+      * MCS core
+      * MCS shield
+      * Cloud core
+      * Cloud shield
+      * env
+    * Return a 3D array of these (time, lon lat).
+    """
     mcs_core_shield_mask = []
     # Looping over subset of times.
     for i, time in enumerate(pixel_on_e5.time.values):
@@ -484,7 +519,7 @@ def gen_region_masks(logger, pixel_on_e5, tracks, core_method='tb'):
             cns.sort()
 
         # Tracked MCS shield (N.B. close to Tb < 241K but expanded by precip regions).
-        # INCLUDES CONV CORE.
+        # INCLUDES CONV CORE (if using core_method='tb')
         if len(pixel_on_e5.time.values) == 1:
             # No time dim.
             mcs_core_shield_mask.append(pixel_on_e5.cloudnumber.isin(cns).values)
@@ -522,6 +557,3 @@ def gen_region_masks(logger, pixel_on_e5, tracks, core_method='tb'):
     ).all()
 
     return mcs_core_mask, mcs_shield_mask, cloud_core_mask, cloud_shield_mask, env_mask
-
-
-

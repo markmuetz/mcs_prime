@@ -23,10 +23,7 @@ def _create_fig_ax():
 class PixelData:
     def __init__(self, pixel_data_dir):
         track_pixel_paths = sorted(pixel_data_dir.glob("**/*.nc"))
-        self.date_path_map = {
-            dt.datetime.strptime(p.stem, "mcstrack_%Y%m%d_%H%M"): p
-            for p in track_pixel_paths
-        }
+        self.date_path_map = {dt.datetime.strptime(p.stem, "mcstrack_%Y%m%d_%H%M"): p for p in track_pixel_paths}
         if len(self.date_path_map) == 0:
             raise Exception(f"No pixel data found in: {pixel_data_dir}")
 
@@ -111,9 +108,7 @@ class PixelFrames:
                 cloudmask = self.dspixel.cloudnumber[i] == cloudnumber
                 data[i][~cloudmask] = 0
         mean_data = data.mean(axis=0)
-        getattr(ax, method)(
-            self.dspixel.lon, self.dspixel.lat, mean_data, **method_kwargs
-        )
+        getattr(ax, method)(self.dspixel.lon, self.dspixel.lat, mean_data, **method_kwargs)
 
 
 class PixelFrame:
@@ -157,11 +152,7 @@ class McsTracks:
     @classmethod
     def mfopen(cls, stats_paths=None, pixeldir=None, round_times=True):
         if stats_paths is None:
-            stats_paths = sorted(
-                PATHS["statsdir"].glob(
-                    "mcs_tracks_final_extc_????????.0000_????????.0000.nc"
-                )
-            )
+            stats_paths = sorted(PATHS["statsdir"].glob("mcs_tracks_final_extc_????????.0000_????????.0000.nc"))
         if pixeldir is None:
             pixeldir = PATHS["pixeldir"]
         dstracks = xr.open_mfdataset(
@@ -172,9 +163,7 @@ class McsTracks:
         )
         dstracks["tracks"] = np.arange(0, dstracks.dims["tracks"], 1, dtype=int)
         if round_times:
-            round_times_to_nearest_second(
-                dstracks, ["base_time", "start_basetime", "end_basetime"]
-            )
+            round_times_to_nearest_second(dstracks, ["base_time", "start_basetime", "end_basetime"])
         pixel_data = PixelData(pixeldir)
         return cls(dstracks, pixel_data)
 
@@ -184,9 +173,7 @@ class McsTracks:
             pixeldir = PATHS["pixeldir"]
         dstracks = xr.open_dataset(stats_path)
         if round_times:
-            round_times_to_nearest_second(
-                dstracks, ["base_time", "start_basetime", "end_basetime"]
-            )
+            round_times_to_nearest_second(dstracks, ["base_time", "start_basetime", "end_basetime"])
         pixel_data = PixelData(pixeldir)
         return cls(dstracks, pixel_data)
 
@@ -213,9 +200,7 @@ class McsTracks:
 
     def tracks_at_time(self, datetime):
         datetime = pd.Timestamp(datetime).to_numpy()
-        dstracks_at_time = self.dstracks.isel(
-            tracks=(self.dstracks.base_time.values == datetime).any(axis=1)
-        )
+        dstracks_at_time = self.dstracks.isel(tracks=(self.dstracks.base_time.values == datetime).any(axis=1))
         return McsTracks(dstracks_at_time, self.pixel_data)
 
     def land_sea_both_tracks(self, land_ratio=0.9, sea_ratio=0.1):
@@ -225,16 +210,12 @@ class McsTracks:
         track_mean_pf_landfrac = self.dstracks.pf_landfrac.mean(dim="times").values
         land_mask = track_mean_pf_landfrac > land_ratio
         sea_mask = track_mean_pf_landfrac <= sea_ratio
-        both_mask = (track_mean_pf_landfrac <= land_ratio) & (
-            track_mean_pf_landfrac > sea_ratio
-        )
+        both_mask = (track_mean_pf_landfrac <= land_ratio) & (track_mean_pf_landfrac > sea_ratio)
 
         land_tracks = McsTracks(self.dstracks.isel(tracks=land_mask), self.pixel_data)
         sea_tracks = McsTracks(self.dstracks.isel(tracks=sea_mask), self.pixel_data)
         if both_mask.sum() != 0:
-            both_tracks = McsTracks(
-                self.dstracks.isel(tracks=both_mask), self.pixel_data
-            )
+            both_tracks = McsTracks(self.dstracks.isel(tracks=both_mask), self.pixel_data)
         else:
             both_tracks = None
         return land_tracks, sea_tracks, both_tracks
@@ -269,14 +250,10 @@ class McsTracks:
         return pd.Timestamp(self.dstracks.end_basetime.values.max())
 
     def __repr__(self):
-        return (
-            f"McsTracks[{self.start}, {self.end}, ntracks={len(self.dstracks.tracks)}]"
-        )
+        return f"McsTracks[{self.start}, {self.end}, ntracks={len(self.dstracks.tracks)}]"
 
     def _repr_html_(self):
-        return (
-            f"McsTracks[{self.start}, {self.end}, ntracks={len(self.dstracks.tracks)}]"
-        )
+        return f"McsTracks[{self.start}, {self.end}, ntracks={len(self.dstracks.tracks)}]"
 
 
 class McsTrack:

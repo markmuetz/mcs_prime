@@ -9,6 +9,7 @@ class ERA5Calc:
 
     Use metpy for calculations. BUT disregard units, and use
     correct conversion for base ERA5 units."""
+
     def __init__(self, model_levels_table_file):
         self.df_ecmwf = pd.read_csv(model_levels_table_file)
 
@@ -41,7 +42,4 @@ class ERA5Calc:
 
     def calc_RH(self, p, T, q):
         """Calculate relative humidity from p, T, q"""
-        return mpcalc.relative_humidity_from_specific_humidity(p * units.Pa,
-                                                               T * units.K,
-                                                               q * units('kg/kg')).magnitude
-
+        return mpcalc.relative_humidity_from_specific_humidity(p * units.Pa, T * units.K, q * units('kg/kg')).magnitude

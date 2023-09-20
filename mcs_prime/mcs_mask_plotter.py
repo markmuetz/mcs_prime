@@ -31,12 +31,14 @@ def create_geoms_from_mask(lon, lat, mask):
     for yidx, xidx in zip(*np.where(mask)):
         if abs(lon_bounds[xidx] - 180) < 0.5:
             continue
-        geoms.append(shapely.geometry.box(
-            lon_360_to_180(lon_bounds[xidx]),
-            lat_bounds[yidx],
-            lon_360_to_180(lon_bounds[xidx + 1]),
-            lat_bounds[yidx + 1]
-        ))
+        geoms.append(
+            shapely.geometry.box(
+                lon_360_to_180(lon_bounds[xidx]),
+                lat_bounds[yidx],
+                lon_360_to_180(lon_bounds[xidx + 1]),
+                lat_bounds[yidx + 1],
+            )
+        )
     full_geom = shapely.ops.unary_union(geoms)
     return full_geom.geoms
 
@@ -46,8 +48,7 @@ class McsMaskPlotterData:
         self.times = times
         self.e5vars = e5vars
         self.e5times = pd.DatetimeIndex(
-            [t - pd.Timedelta(minutes=30) for t in self.times] +
-            [self.times[-1] + pd.Timedelta(minutes=30)]
+            [t - pd.Timedelta(minutes=30) for t in self.times] + [self.times[-1] + pd.Timedelta(minutes=30)]
         )
         assert (self.times[0].year == self.times.year).all()
         year = self.times[0].year
@@ -63,7 +64,9 @@ class McsMaskPlotterData:
             for t in self.times
         }
 
-        class Object: pass
+        class Object:
+            pass
+
         self.logger = Object()
         self.logger.info = print
         self.logger.debug = print
@@ -79,8 +82,9 @@ class McsMaskPlotterData:
         self.csm = csm
         self.em = em
 
-        self.e5data = (xr.open_mfdataset(self.e5inputs.values()).sel(latitude=slice(60, -60))
-                       .interp(time=self.times)).load()
+        self.e5data = (
+            xr.open_mfdataset(self.e5inputs.values()).sel(latitude=slice(60, -60)).interp(time=self.times)
+        ).load()
 
         self.all_geoms_at_time = {}
         for i, time in enumerate(self.times):
@@ -119,10 +123,21 @@ class McsMaskPlotter:
         anim = matplotlib.animation.FuncAnimation(fig, anim_frame, frames=len(plot_args_kwargs), interval=500)
         return anim
 
-    def plot(self, ax=None, time=None, var='tcwv', extent=None,
-             show_field=True, show_colourbar=True, show_radii=True, show_mcs_masks=True, show_precip=True,
-             grid_x=[], grid_y=[],
-             cbar_kwargs={}):
+    def plot(
+        self,
+        ax=None,
+        time=None,
+        var='tcwv',
+        extent=None,
+        show_field=True,
+        show_colourbar=True,
+        show_radii=True,
+        show_mcs_masks=True,
+        show_precip=True,
+        grid_x=[],
+        grid_y=[],
+        cbar_kwargs={},
+    ):
         if ax is None:
             fig, ax = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()})
             fig.set_size_inches(10, 7.2)
@@ -158,9 +173,18 @@ class McsMaskPlotter:
         dlat = lat[1] - lat[0]
         dlon = lon[1] - lon[0]
         if show_precip:
-            ax.contour(pixel_on_e5.longitude, pixel_on_e5.latitude, pixel_on_e5.precipitation, levels=[2, 5, 10], colors=['purple', 'purple', 'purple'], zorder=5)
+            ax.contour(
+                pixel_on_e5.longitude,
+                pixel_on_e5.latitude,
+                pixel_on_e5.precipitation,
+                levels=[2, 5, 10],
+                colors=['purple', 'purple', 'purple'],
+                zorder=5,
+            )
         if show_field:
-            im = ax.imshow(var_data, extent=(lonmin - dlon / 2, lonmax + dlon / 2, latmin + dlat / 2, latmax - dlat / 2))
+            im = ax.imshow(
+                var_data, extent=(lonmin - dlon / 2, lonmax + dlon / 2, latmin + dlat / 2, latmax - dlat / 2)
+            )
 
         if show_mcs_masks:
             for geoms, kwargs1, kwargs2 in zip(
@@ -176,7 +200,7 @@ class McsMaskPlotter:
                     dict(edgecolor='red', linestyle='--', hatch=r'\\'),
                     dict(edgecolor='blue', linestyle='-', hatch='//'),
                     dict(edgecolor='blue', linestyle='--', hatch=r'\\'),
-                ]
+                ],
             ):
                 # geoms = [g for g in geoms if not filter_geom(g)]
                 # geoms = create_geoms_from_mask(pixel_on_e5.longitude, pixel_on_e5.latitude, m[0])
@@ -196,8 +220,7 @@ class McsMaskPlotter:
 
         ax.coastlines()
         if grid_x and grid_y:
-            ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False,
-                         xlocs=grid_x, ylocs=grid_y)
+            ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False, xlocs=grid_x, ylocs=grid_y)
 
         if show_colourbar:
             if var == 'tcwv':

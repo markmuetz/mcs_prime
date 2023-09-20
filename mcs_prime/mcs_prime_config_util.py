@@ -182,9 +182,7 @@ FMT_PATH_ERA5P_DELTA = (
     / 'era5_processed/{year}/{month:02d}/{day:02d}'
     / 'ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_delta.nc'
 )
-FMT_PATH_ERA5_MEANFIELD = (
-    PATHS['outdir'] / 'era5_processed' / '{year}' / 'era5_mean_field_{year}_{month:02d}.nc'
-)
+FMT_PATH_ERA5_MEANFIELD = PATHS['outdir'] / 'era5_processed' / '{year}' / 'era5_mean_field_{year}_{month:02d}.nc'
 
 # MCS pixel data regridded to ERA5 grid (i.e. coarsened).
 # =======================================================

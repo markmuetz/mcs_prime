@@ -265,21 +265,20 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
             dx_deg = longitude.values[1] - longitude.values[0]
             dy_deg = latitude.values[0] - latitude.values[1]  # N.B. want positive so swap indices.
 
-            dy = dy_deg / 360 * 2 * np.pi * Re  # km
-            dx = np.cos(latitude.values * np.pi / 180) * dx_deg / 360 * 2 * np.pi * Re  # km
+            dy = dy_deg / 360 * 2 * np.pi * Re
+            dx = np.cos(latitude.values * np.pi / 180) * dx_deg / 360 * 2 * np.pi * Re
 
             div_mf = calc_div_mf(rho, q, u, v, dx, dy)
 
-            # Pressure-weighted integral.
+            # Int_zs^zt(div_mf, dz) ==
+            # Pressure-coord integral.
             # Int_ps^pt(1 / (rho g) div_mf, dp)
             dp = p[1:] - p[:-1]
             vimfd = (1 / (rho[:, 1:-1, :] * g) * div_mf * dp[:, 1:-1, :]).sum(axis=0)
-            # TODO: Need to check the units on this!
-            raise Exception('TODO: Check units!')
 
             attrs = {
-                'description': 'pressure-weighted vertical integral of moisture flux divergence',
-                'units': 'kg * s**3 * m**-2',
+                'description': 'vertical integral of horizontal divergence of moisture flux',
+                'units': 'kg * m**-2 * s**-1',
             }
             dsout = xr.Dataset(
                 coords=dict(

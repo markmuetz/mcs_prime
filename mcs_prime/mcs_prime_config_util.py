@@ -115,7 +115,7 @@ YEARS_MONTHS = [(y, m) for y in YEARS for m in MONTHS]
 
 # Define static paths. Done in a system-agnostic way.
 PATH_ERA5_MODEL_LEVELS = PATHS['datadir'] / 'ERA5/ERA5_L137_model_levels_table.csv'
-PATH_REGRIDDER = PATHS['outdir'] / / 'pixel_to_era5_regridder' / 'bilinear_1200x3600_481x1440_peri.nc'
+PATH_REGRIDDER = PATHS['outdir'] / 'pixel_to_era5_regridder' / 'bilinear_1200x3600_481x1440_peri.nc'
 PATH_ERA5_LAND_SEA_MASK = PATHS['era5dir'] / 'data/invariants/ecmwf-era5_oper_an_sfc_200001010000.lsm.inv.nc'
 PATH_LAT_LON_DISTS = PATHS['outdir'] / 'mcs_local_envs' / 'lat_lon_distances.nc'
 

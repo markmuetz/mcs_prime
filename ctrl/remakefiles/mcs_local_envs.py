@@ -29,6 +29,40 @@ TODOS
 print(TODOS)
 
 
+def e5_data_inputs(e5times):
+    inputs = {
+        f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5_SFC, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
+        for t in e5times
+        for var in cu.ERA5VARS
+    }
+    inputs.update(
+        {
+            f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR, year=t.year, month=t.month, day=t.day, hour=t.hour)
+            for t in e5times
+        }
+    )
+    inputs.update(
+        {
+            f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
+            for t in e5times
+        }
+    )
+    inputs.update(
+        {
+            f'layer_means_{t}': fmtp(cu.FMT_PATH_ERA5P_LAYER_MEANS, year=t.year, month=t.month, day=t.day, hour=t.hour)
+            for t in e5times
+        }
+    )
+    inputs.update(
+        {
+            f'delta_{t}': fmtp(cu.FMT_PATH_ERA5P_DELTA, year=t.year, month=t.month, day=t.day, hour=t.hour)
+            for t in e5times
+        }
+    )
+    return inputs
+
+
+
 def load_e5_data(logger, e5times, inputs):
     mcs_times = e5times[:-1] + pd.Timedelta(minutes=30)
 
@@ -136,36 +170,7 @@ class McsLocalEnv(TaskRule):
         # of MCS dataset data (on the half hour).
         e5times = pd.date_range(start, start + pd.Timedelta(days=1), freq='H')
 
-        inputs = {
-            f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5_SFC, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
-            for t in e5times
-            for var in cu.ERA5VARS
-        }
-        inputs.update(
-            {
-                f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR, year=t.year, month=t.month, day=t.day, hour=t.hour)
-                for t in e5times
-            }
-        )
-        inputs.update(
-            {
-                f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
-                for t in e5times
-            }
-        )
-        inputs.update(
-            {
-                f'layer_means_{t}': fmtp(cu.FMT_PATH_ERA5P_LAYER_MEANS, year=t.year, month=t.month, day=t.day, hour=t.hour)
-                for t in e5times
-            }
-        )
-        inputs.update(
-            {
-                f'delta_{t}': fmtp(cu.FMT_PATH_ERA5P_DELTA, year=t.year, month=t.month, day=t.day, hour=t.hour)
-                for t in e5times
-            }
-        )
-
+        inputs = e5_data_inputs(e5times)
         inputs['tracks'] = cu.fmt_mcs_stats_path(year)
         inputs['dists'] = cu.PATH_LAT_LON_DISTS
 
@@ -175,7 +180,7 @@ class McsLocalEnv(TaskRule):
 
     var_matrix = {
         ('year', 'month', 'day'): cu.DATE_KEYS,
-        'mode': ['init', 'lifecycle'],
+        'mode': ['init', 'lifetime'],
     }
 
     def rule_run(self):
@@ -223,7 +228,7 @@ class McsLocalEnv(TaskRule):
                 time_mask = tracks.dstracks.base_time.values[:, 0] == nptime
                 mcs_lats = tracks.dstracks.meanlat.values[:, 0][time_mask]
                 mcs_lons = tracks.dstracks.meanlon.values[:, 0][time_mask]
-            elif self.mode == 'lifecycle':
+            elif self.mode == 'lifetime':
                 time_mask = tracks.dstracks.base_time.values == nptime
                 mcs_lats = tracks.dstracks.meanlat.values[time_mask]
                 mcs_lons = tracks.dstracks.meanlon.values[time_mask]
@@ -270,36 +275,7 @@ class LifecycleMcsLocalEnvHist(TaskRule):
         end = start + pd.DateOffset(months=1) + pd.Timedelta(hours=401)
         e5times = pd.date_range(start, end, freq='H')
 
-        inputs = {
-            f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5_SFC, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
-            for t in e5times
-            for var in cu.ERA5VARS
-        }
-        inputs.update(
-            {
-                f'shear_{t}': fmtp(cu.FMT_PATH_ERA5P_SHEAR, year=t.year, month=t.month, day=t.day, hour=t.hour)
-                for t in e5times
-            }
-        )
-        inputs.update(
-            {
-                f'vimfd_{t}': fmtp(cu.FMT_PATH_ERA5P_VIMFD, year=t.year, month=t.month, day=t.day, hour=t.hour)
-                for t in e5times
-            }
-        )
-        inputs.update(
-            {
-                f'layer_means_{t}': fmtp(cu.FMT_PATH_ERA5P_LAYER_MEANS, year=t.year, month=t.month, day=t.day, hour=t.hour)
-                for t in e5times
-            }
-        )
-        inputs.update(
-            {
-                f'delta_{t}': fmtp(cu.FMT_PATH_ERA5P_DELTA, year=t.year, month=t.month, day=t.day, hour=t.hour)
-                for t in e5times
-            }
-        )
-
+        inputs = e5_data_inputs(e5times)
         inputs['tracks'] = cu.fmt_mcs_stats_path(year)
         inputs['dists'] = cu.PATH_LAT_LON_DISTS
 
@@ -311,7 +287,7 @@ class LifecycleMcsLocalEnvHist(TaskRule):
         'year': cu.YEARS,
         'month': cu.MONTHS,
     }
-    config = {'slurm': {'mem': 256000, 'partition': 'high-mem'}}
+    # config = {'slurm': {'mem': 256000, 'partition': 'high-mem'}}
 
     def rule_run(self):
         # Start from first precursor time.
@@ -347,14 +323,14 @@ class LifecycleMcsLocalEnvHist(TaskRule):
 
         coords['percentile'] = percentiles
         for var in cu.EXTENDED_ERA5VARS:
-            bins, hist_mids = cu.get_bins(var)
-            coords.update({f'{var}_hist_mids': hist_mids, f'{var}_bins': bins})
+            # bins, hist_mids = cu.get_bins(var)
+            # coords.update({f'{var}_hist_mids': hist_mids, f'{var}_bins': bins})
             # Starts off as np.nan.
-            blank_hist_data = np.full((len(dstracks.tracks), len(cu.RADII), len(hist_mids), 424), np.nan)
+            # blank_hist_data = np.full((len(dstracks.tracks), len(cu.RADII), len(hist_mids), 424), np.nan)
             blank_mean_data = np.full((len(dstracks.tracks), len(cu.RADII), 424), np.nan)
             blank_percentile_data = np.full((len(dstracks.tracks), len(cu.RADII), len(percentiles), 424), np.nan)
 
-            data_vars[f'hist_{var}'] = (('tracks', 'radius', f'{var}_hist_mids', 'times'), blank_hist_data)
+            # data_vars[f'hist_{var}'] = (('tracks', 'radius', f'{var}_hist_mids', 'times'), blank_hist_data)
             data_vars[f'mean_{var}'] = (('tracks', 'radius', 'times'), blank_mean_data)
             data_vars[f'percentile_{var}'] = (('tracks', 'radius', 'percentile', 'times'), blank_percentile_data)
 
@@ -395,11 +371,11 @@ class LifecycleMcsLocalEnvHist(TaskRule):
                 for j, r in enumerate(cu.RADII):
                     dist_mask = dist < r
                     for var in cu.EXTENDED_ERA5VARS:
-                        bins = dsout[f'{var}_bins'].values
+                        # bins = dsout[f'{var}_bins'].values
                         # Go ahead and compute histogram.
                         # Note, to index the times dim, I need to add 24 to i (starts at -24).
                         data = e5ds.sel(time=time)[var].values[dist_mask]
-                        dsout[f'hist_{var}'].values[track_idx, j, :, i + 24] = np.histogram(data, bins=bins)[0]
+                        # dsout[f'hist_{var}'].values[track_idx, j, :, i + 24] = np.histogram(data, bins=bins)[0]
                         dsout[f'mean_{var}'].values[track_idx, j, i + 24] = data.mean()
                         dsout[f'percentile_{var}'].values[track_idx, j, :, i + 24] = np.percentile(data, percentiles)
 
@@ -407,6 +383,7 @@ class LifecycleMcsLocalEnvHist(TaskRule):
 
 
 class CheckMcsLocalEnv(TaskRule):
+    enabled = False
     rule_inputs = {
         'mcs_local_env': fmtp(McsLocalEnv.rule_outputs['mcs_local_env'], year=2020, month=1, day=1, mode='init'),
         'tracks': cu.fmt_mcs_stats_path(2020),
@@ -464,7 +441,7 @@ class CombineMonthlyMcsLocalEnv(TaskRule):
 
     var_matrix = {
         ('year', 'month'): cu.YEARS_MONTHS,
-        'mode': ['init', 'lifecycle'],
+        'mode': ['init', 'lifetime'],
     }
 
     def rule_run(self):

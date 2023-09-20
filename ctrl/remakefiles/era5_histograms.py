@@ -33,7 +33,7 @@ def conditional_inputs(year, month, precursor_time=0):
     start = pd.Timestamp(year, month, 1)
     end = start + pd.DateOffset(months=1)
     daily_pixel_times = pd.date_range(start, end - pd.Timedelta(days=1), freq='D')
-    e5times = cu.gen_era5_times_for_month(year, month, include_precursor_offset=False) - pd.Timedelta(
+    e5times = cu.gen_era5_times_for_month(year, month) - pd.Timedelta(
         hours=precursor_time
     )
 

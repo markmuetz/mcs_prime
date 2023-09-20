@@ -442,6 +442,14 @@ class PlotGridpointConditionalERA5Hist(TaskRule):
                 plt.savefig(self.outputs[f'fig_conv_lat_band_{var}'])
 
 
+def rmse(a, b):
+    return np.sqrt(np.nanmean((a[None, None, :] - b)**2, axis=2))
+
+
+def integral_diff(a, b, dx):
+    return np.nansum(b - a[None, None, :], axis=2) * dx
+
+
 def gen_rmse_integral_diff(ds, vars):
     step = 16
     dataarrays = []
@@ -459,7 +467,7 @@ def gen_rmse_integral_diff(ds, vars):
             dc = d1 / (d1 + d2)
 
         da_rmse = xr.DataArray(
-            cu.rmse(d, dc),
+            rmse(d, dc),
             name=f'{var}_rmse',
             dims=['latitude', 'longitude'],
             coords=dict(
@@ -468,7 +476,7 @@ def gen_rmse_integral_diff(ds, vars):
             )
         )
         da_integral_diff = xr.DataArray(
-            cu.integral_diff(d, dc, 1),
+            integral_diff(d, dc, 1),
             name=f'{var}_integral_diff',
             dims=['latitude', 'longitude'],
             coords=dict(
@@ -601,7 +609,7 @@ class PlotMcsLocalEnv(TaskRule):
         return inputs
 
     rule_outputs = {
-        f'fig_{radius}_{plot_type}_{var}': (PATHS['figdir'] / 'mcs_local_env' /
+        f'fig_{radius}_{plot_type}_{var}': (PATHS['figdir'] / 'mcs_local_envs' /
                                             f'mcs_local_env_r{radius}km_{plot_type}_{var}_{{mode}}_{{year}}.png')
         for var in cu.EXTENDED_ERA5VARS
         for plot_type in ['time_mean', 'monthly']
@@ -614,7 +622,7 @@ class PlotMcsLocalEnv(TaskRule):
 
     var_matrix = {
         'year': cu.YEARS,
-        'mode': ['init', 'lifecycle'],
+        'mode': ['init', 'lifetime'],
     }
 
     def rule_run(self):
@@ -679,7 +687,7 @@ class PlotCombinedMcsLocalEnv(TaskRule):
         return inputs
 
     rule_outputs = {
-        f'fig_{radius}': (PATHS['figdir'] / 'mcs_local_env' /
+        f'fig_{radius}': (PATHS['figdir'] / 'mcs_local_envs' /
                           f'combined_mcs_local_env_r{radius}km_{{e5vars}}_init_{{year}}.png')
         for radius in [500]
     }
@@ -750,7 +758,7 @@ class PlotMcsLocalEnvPrecursorMeanValue(TaskRule):
         return inputs
 
     rule_outputs = {
-        f'fig_{var}': (PATHS['figdir'] / 'mcs_local_env' /
+        f'fig_{var}': (PATHS['figdir'] / 'mcs_local_envs' /
                        f'mcs_local_env_precursor_mean_{var}_{{year}}_{{N}}.png')
         for var in cu.EXTENDED_ERA5VARS
     }
@@ -786,7 +794,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
         return inputs
 
     rule_outputs = {
-        'fig_{e5vars}': (PATHS['figdir'] / 'mcs_local_env' /
+        'fig_{e5vars}': (PATHS['figdir'] / 'mcs_local_envs' /
                          'mcs_local_env_precursor_mean_{e5vars}_{year}.png')
     }
 

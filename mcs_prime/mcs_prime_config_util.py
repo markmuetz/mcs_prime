@@ -1,9 +1,12 @@
 import inspect
 import socket
 import warnings
+import os
 import pickle
 import shutil
+import subprocess as sp
 import traceback
+from collections import namedtuple
 from hashlib import sha1
 from pathlib import Path
 
@@ -17,6 +20,8 @@ import xarray as xr
 import remake
 from remake import util
 
+
+PRODUCTION = True
 
 # Define paths on different systems. The most important ones are "jasmin".
 ALL_PATHS = {
@@ -59,6 +64,68 @@ PATHS = ALL_PATHS[hostname]
 for k, path in PATHS.items():
     if not path.exists():
         warnings.warn(f"Warning: path missing {k}: {path}")
+
+# Utility functions for if running with PRODUCTION = True
+# Gather information about git repos, conda and machine
+# for storing in .nc metadata.
+GitInfo = namedtuple('GitInfo', ['loc', 'is_repo', 'hash', 'describe', 'status'])
+
+def get_git_info(location):
+    """Get git info about a specific location"""
+    cwd = Path.cwd()
+    os.chdir(location)
+    try:
+        # Will raise sp.CalledProcessError if not in git repo.
+        git_hash = sp.check_output('git rev-parse HEAD'.split(),
+                                   stderr=sp.STDOUT).decode().strip()
+        git_describe = sp.check_output('git describe --tags --always'.split()).decode().strip()
+        if sp.check_output('git status --porcelain'.split()) == b'':
+            return GitInfo(location, True, git_hash, git_describe, 'clean')
+        else:
+            return GitInfo(location, True, git_hash, git_describe, 'uncommitted_changes')
+    except sp.CalledProcessError as ex:
+        return GitInfo(location, False, None, None, 'not_a_repo')
+    finally:
+        os.chdir(cwd)
+
+
+def get_conda_env_details():
+    """Get sufficient conda (and pip) info to rebuild conda env"""
+    cmd = 'conda env export'
+    return sp.check_output(cmd.split()).decode()
+
+
+def get_machine_info():
+    """Get machine specific info about CPU and OS"""
+    cmd = 'lscpu'
+    machine_lspcu = sp.check_output(cmd.split()).decode()
+    cmd = 'lsb_release -idrc'
+    machine_lsb_release = sp.check_output(cmd.split()).decode()
+    cmd = 'uname -a'
+    machine_uname = sp.check_output(cmd.split()).decode()
+    return machine_lspcu, machine_lsb_release, machine_uname
+
+
+if PRODUCTION:
+    assert hostname == 'jasmin', 'Production runs must be done on JASMIN'
+    print('RUNNING IN PRODUCTION MODE')
+    print('==========================')
+
+    mcs_prime_git_info = get_git_info('/home/users/mmuetz/projects/mcs_prime/')
+    remake_git_info = get_git_info('/home/users/mmuetz/projects/remake/')
+    print(mcs_prime_git_info)
+    print(remake_git_info)
+
+    conda_env_details = get_conda_env_details()
+    # print(conda_env_details)
+
+    machine_lspcu, machine_lsb_release, machine_uname = get_machine_info()
+    # print(machine_lspcu)
+    # print(machine_lsb_release)
+    # print(machine_uname)
+    if mcs_prime_git_info.status != 'clean' or remake_git_info.status != 'clean':
+        raise Exception('PRODUCTION: Both key repositories must be clean')
+
 
 # These are from Zhe Feng's tracking dataset.
 # Generated using:
@@ -396,14 +463,26 @@ def to_netcdf_tmp_then_copy(ds, outpath, encoding=None):
     metadata_attrs = {
         'created by': f'{calling_file}: {calling_class_name}',
         'calling file source': Path(calling_file).read_text(),
+        'project repository': 'https://github.com/markmuetz/MCS_PRIME',
         f'remake version': remake_version,
+        'remake repository': 'https://github.com/markmuetz/remake',
         f'task': f'{calling_obj}',
         f'task doc': f'{calling_obj_doc}',
         'created on': str(pd.Timestamp.now()),
         'nodename': nodename,
         'hostname': hostname,
         'output path': str(output_path_actual),
+        'contact': 'mark.muetzelfeldt@reading.ac.uk',
     }
+    if PRODUCTION:
+        metadata_attrs.update({
+            'production_mcs_prime_git_info': str(mcs_prime_git_info),
+            'production_remake_git_info': str(remake_git_info),
+            'production_conda_env_details': conda_env_details,
+            'production_machine_lspcu': machine_lspcu,
+            'production_machine_lsb_release': machine_lsb_release,
+            'production_machine_uname': machine_uname,
+        })
     ds.attrs.update(metadata_attrs)
 
     ds.to_netcdf(tmppath, encoding=encoding)

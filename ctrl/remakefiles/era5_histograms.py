@@ -11,17 +11,6 @@ from remake.util import format_path as fmtp
 import mcs_prime.mcs_prime_config_util as cu
 from mcs_prime.mcs_prime_config_util import gen_region_masks
 
-TODOS = '''
-TODOS
-* Make sure filenames are consistent
-* Make sure variables names are sensible/consistent
-* Docstrings for all fns, classes
-* Validate all data
-* Consistent attrs for all created .nc files
-* Units on data vars etc.
-'''
-print(TODOS)
-
 slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '20:00:00'}
 # slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 64000}
 era5_histograms = Remake(config=dict(slurm=slurm_config, content_checks=False, no_check_input_exist=True))
@@ -30,6 +19,7 @@ pixel_inputs_cache = cu.PixelInputsCache()
 
 
 def conditional_inputs(year, month, precursor_time=0):
+    """Generate a dict of inputs for MCS Pixel and ERA5 inputs"""
     start = pd.Timestamp(year, month, 1)
     end = start + pd.DateOffset(months=1)
     daily_pixel_times = pd.date_range(start, end - pd.Timedelta(days=1), freq='D')
@@ -37,10 +27,7 @@ def conditional_inputs(year, month, precursor_time=0):
         hours=precursor_time
     )
 
-    # OK, this is a little complicated.
-    # The logic is the same as above in GenPixelDataOnERA5Grid.
-    # I only want to add the output of GenPixelDataOnERA5Grid, if the original MCS pixel data
-    # exists. But I now need to do for one month.
+    # Loop over *daily* times, and for each day update the pixel_on_e5_{t} entry for each *hourly* time.
     pixel_on_e5_inputs = {}
     for daily_pixel_time in daily_pixel_times:
         pixel_times, pixel_inputs = pixel_inputs_cache.all_pixel_inputs[
@@ -88,12 +75,8 @@ def conditional_inputs(year, month, precursor_time=0):
     }
 
 
-def monthly_meanfield_conditional_inputs(month):
-    rule_outputs = {f'era5_{y}': fmtp(cu.FMT_PATH_ERA5_MEANFIELD, year=y, month=month) for y in cu.YEARS}
-    return e5meanfield_inputs
-
-
 def meanfield_conditional_inputs():
+    """Conditional inputs for meanfield data"""
     e5meanfield_inputs = {
         f'era5_{y}_{m}': fmtp(cu.FMT_PATH_ERA5_MEANFIELD, year=y, month=m) for y in cu.YEARS for m in cu.MONTHS
     }
@@ -101,6 +84,7 @@ def meanfield_conditional_inputs():
 
 
 def conditional_load_mcs_data(logger, year, month, inputs):
+    """Load tracks and pixel data (technically just open it)"""
     logger.debug('Open tracks')
     tracks = McsTracks.open(inputs['tracks'], None)
     pixel_on_e5_paths = [v for k, v in inputs.items() if k.startswith('pixel_on_e5')]
@@ -111,7 +95,8 @@ def conditional_load_mcs_data(logger, year, month, inputs):
 
 
 def conditional_load_data(logger, year, month, inputs, precursor_time=0):
-    e5times = cu.gen_era5_times_for_month(year, month, include_precursor_offset=False) - pd.Timedelta(
+    """Load conditional data for tracks, Pixel and ERA5 base and processed"""
+    e5times = cu.gen_era5_times_for_month(year, month) - pd.Timedelta(
         hours=precursor_time
     )
 
@@ -144,11 +129,16 @@ def conditional_load_data(logger, year, month, inputs, precursor_time=0):
 
 
 def conditional_load_meanfield_data(logger, inputs):
+    """Load meanfield data"""
     e5meanfield = xr.open_mfdataset([v for k, v in inputs.items() if k.startswith('era5_')])
     return e5meanfield.mean(dim='time').load()
 
 
 def calc_frac_growth(dstracks):
+    """Calculate the factional growth from dstracks data
+
+    frac_growth = (1 / A) dA / dt
+    """
     mask = ~np.isnan(dstracks.area)
 
     dt = 1
@@ -162,6 +152,10 @@ def calc_frac_growth(dstracks):
 
 
 def calc_growth_masks(fractional_area_growth, thresh=0.5):
+    """Calculate growth masks based on a fractional growth threshold
+
+    A thresh of 0.5 means that growth means that the MCS grows by 50% in 1 hour.
+    """
     growth_mask = fractional_area_growth >= thresh
     stable_mask = (fractional_area_growth > -thresh) & (fractional_area_growth < thresh)
     decay_mask = fractional_area_growth <= thresh
@@ -170,6 +164,7 @@ def calc_growth_masks(fractional_area_growth, thresh=0.5):
 
 
 def gen_mcs_lifecycle_region_masks(logger, pixel_on_e5, tracks):
+    """Generate masks to select MCSs in different phases of their lifecycle"""
     # Calc some masks to select MCSs in different phases.
     init_mask = np.zeros_like(tracks.dstracks.area.values, dtype=bool)
     init_mask[:, :2] = 1
@@ -226,7 +221,7 @@ def gen_mcs_lifecycle_region_masks(logger, pixel_on_e5, tracks):
 
 
 def build_hourly_output_dataset(pixel_on_e5):
-    # Build inputs to Dataset
+    """Build a dataset for histograms data"""
     coords = {'time': pixel_on_e5.time}
     data_vars = {}
     for var in cu.EXTENDED_ERA5VARS:
@@ -250,75 +245,22 @@ def build_hourly_output_dataset(pixel_on_e5):
         coords=coords,
         data_vars=data_vars,
     )
+    # Assign units to coords.
+    for var in cu.EXTENDED_ERA5VARS:
+        units = cu.get_units(var)
+        dsout[f'{var}_hist_mids'].attrs['units'] = units
+        dsout[f'{var}_bins'].attrs['units'] = units
     return dsout
 
 
-class PrecursorConditionalERA5HistHourly(TaskRule):
-    enabled = False
-
-    @staticmethod
-    def rule_inputs(year, month, precursor_time):
-        inputs = conditional_inputs(
-            year, month, precursor_time
-        )
-        return inputs
-
-    rule_outputs = {'hist': cu.FMT_PATH_PRECURSOR_COND_HIST}
-
-    var_matrix = {
-        'year': cu.YEARS,
-        'month': cu.MONTHS,
-        'precursor_time': [1, 3, 6],
-    }
-
-    depends_on = [
-        conditional_load_mcs_data,
-        conditional_load_data,
-        cu.load_lsmask,
-        build_hourly_output_dataset,
-        cu.get_bins,
-        gen_region_masks,
-    ]
-
-    def rule_run(self):
-        self.logger.info('Load data')
-        tracks, pixel_on_e5, e5ds = conditional_load_data(
-            self.logger, self.year, self.month, self.inputs, self.precursor_time
-        )
-        lsmask = cu.load_lsmask(self.inputs['ERA5_land_sea_mask'])
-
-        self.logger.info('Build output datasets')
-        dsout = build_hourly_output_dataset(pixel_on_e5)
-
-        self.logger.info('Generate region masks')
-        (mcs_core_mask, mcs_shield_mask, cloud_core_mask, cloud_shield_mask, env_mask) = gen_region_masks(
-            self.logger, pixel_on_e5, tracks, core_method='tb'
-        )
-
-        self.logger.info('Calc hists at each time')
-        for i, time in enumerate(pixel_on_e5.time.values):
-            pdtime = pd.Timestamp(time)
-            if pdtime.hour == 0:
-                print(pdtime)
-
-            def hist(data):
-                # closure to save space.
-                return np.histogram(data, bins=dsout.coords[f'{var}_bins'].values)[0]
-
-            for var, lsreg in product(e5ds.data_vars.keys(), cu.LS_REGIONS):
-                data = e5ds[var].sel(time=pdtime).values
-                # Calc hists. These 5 regions are mutually exclusive.
-                dsout[f'{lsreg}_{var}_MCS_shield'][i] = hist(data[mcs_shield_mask[i] & lsmask[lsreg]])
-                dsout[f'{lsreg}_{var}_MCS_core'][i] = hist(data[mcs_core_mask[i] & lsmask[lsreg]])
-                dsout[f'{lsreg}_{var}_cloud_shield'][i] = hist(data[cloud_shield_mask[i] & lsmask[lsreg]])
-                dsout[f'{lsreg}_{var}_cloud_core'][i] = hist(data[cloud_core_mask[i] & lsmask[lsreg]])
-                dsout[f'{lsreg}_{var}_env'][i] = hist(data[env_mask[i] & lsmask[lsreg]])
-
-        self.logger.info('write dsout')
-        cu.to_netcdf_tmp_then_copy(dsout, self.outputs['hist'])
-
-
 class ConditionalERA5HistHourly(TaskRule):
+    """Build a conditional (i.e. dependent on the 5 MCS regions) histogram on hourly timestep
+
+    This is a key class. The idea is as follows.
+    * Load the ERA5 data, MCS tracks and Pixel data, and land/sea mesk
+    * From the MCS data, generate regional masks
+    * Use these to sample the ERA5 data, and build a histogram of all regions in, say the MCS conv region
+    """
     @staticmethod
     def rule_inputs(year, month, core_method):
         inputs = conditional_inputs(
@@ -379,91 +321,11 @@ class ConditionalERA5HistHourly(TaskRule):
         cu.to_netcdf_tmp_then_copy(dsout, self.outputs['hist'])
 
 
-class ConditionalERA5HistHourlyMCSLifecycle(TaskRule):
-    @staticmethod
-    def rule_inputs(year, month):
-        inputs = conditional_inputs(
-            year, month
-        )
-        return inputs
-
-    rule_outputs = {'hist': cu.FMT_PATH_COND_MCS_LIFECYCLE_HIST_HOURLY}
-
-    var_matrix = {
-        'year': cu.YEARS,
-        'month': cu.MONTHS,
-    }
-
-    depends_on = [
-        conditional_load_mcs_data,
-        conditional_load_data,
-        cu.load_lsmask,
-        build_hourly_output_dataset,
-        cu.get_bins,
-        gen_mcs_lifecycle_region_masks,
-    ]
-
-    def build_mcs_lifecycle_hourly_output_dataset(self, pixel_on_e5, mcs_core_mask_for_phase):
-        # Build inputs to Dataset
-        coords = {'time': pixel_on_e5.time}
-        data_vars = {}
-        for var in cu.EXTENDED_ERA5VARS:
-            bins, hist_mids = cu.get_bins(var)
-            hists = np.zeros((len(pixel_on_e5.time), hist_mids.size))
-
-            coords.update({f'{var}_hist_mids': hist_mids, f'{var}_bins': bins})
-            for lsreg in cu.LS_REGIONS:
-                for phase in mcs_core_mask_for_phase.keys():
-                    data_vars.update(
-                        {
-                            f'{lsreg}_{var}_{phase}_MCS_shield': (('time', f'{var}_hist_mid'), hists.copy()),
-                            f'{lsreg}_{var}_{phase}_MCS_core': (('time', f'{var}_hist_mid'), hists.copy()),
-                        }
-                    )
-
-        # Make a dataset to hold all the histogram data.
-        dsout = xr.Dataset(
-            coords=coords,
-            data_vars=data_vars,
-        )
-        return dsout
-
-    def rule_run(self):
-        self.logger.info('Load data')
-        tracks, pixel_on_e5, e5ds = conditional_load_data(self.logger, self.year, self.month, self.inputs)
-        lsmask = cu.load_lsmask(self.inputs['ERA5_land_sea_mask'])
-
-        self.logger.info('Generate region masks')
-        (mcs_core_mask_for_phase, mcs_shield_mask_for_phase) = gen_mcs_lifecycle_region_masks(
-            self.logger, pixel_on_e5, tracks
-        )
-
-        self.logger.info('Build output datasets')
-        dsout = self.build_mcs_lifecycle_hourly_output_dataset(pixel_on_e5, mcs_core_mask_for_phase)
-
-        self.logger.info('Calc hists at each time')
-        for i, time in enumerate(pixel_on_e5.time.values):
-            pdtime = pd.Timestamp(time)
-            if pdtime.hour == 0:
-                print(pdtime)
-
-            def hist(data):
-                # closure to save space.
-                return np.histogram(data, bins=dsout.coords[f'{var}_bins'].values)[0]
-
-            for var, lsreg in product(e5ds.data_vars.keys(), cu.LS_REGIONS):
-                data = e5ds[var].sel(time=pdtime).values
-                for phase in mcs_core_mask_for_phase.keys():
-                    core_mask = mcs_core_mask_for_phase[phase]
-                    shield_mask = mcs_shield_mask_for_phase[phase]
-                    dsout[f'{lsreg}_{var}_{phase}_MCS_core'][i] = hist(data[core_mask[i] & lsmask[lsreg]])
-                    dsout[f'{lsreg}_{var}_{phase}_MCS_shield'][i] = hist(data[shield_mask[i] & lsmask[lsreg]])
-
-        self.logger.info('write dsout')
-        cu.to_netcdf_tmp_then_copy(dsout, self.outputs['hist'])
-
-
 class ConditionalERA5HistGridpoint(TaskRule):
+    """As ConditionalERA5HistHourly, but instead of grouping data by hour, do it by gridpoint
+
+    Allows me to do regional analysis further down the line.
+    """
     @staticmethod
     def rule_inputs(year, month):
         inputs = conditional_inputs(
@@ -506,6 +368,11 @@ class ConditionalERA5HistGridpoint(TaskRule):
             coords=coords,
             data_vars=data_vars,
         )
+        # Assign units to coords.
+        for var in cu.EXTENDED_ERA5VARS:
+            units = cu.get_units(var)
+            dsout[f'{var}_hist_mids'].attrs['units'] = units
+            dsout[f'{var}_bins'].attrs['units'] = units
         return dsout
 
     def rule_run(self):
@@ -546,6 +413,7 @@ class ConditionalERA5HistGridpoint(TaskRule):
 
 
 class ConditionalERA5HistMeanfield(TaskRule):
+    """As ConditionalERA5HistHourly, but use the ERA5 monthly mean field instead of instantaneous hourly values"""
     @staticmethod
     def rule_inputs(year, month):
         cond_inputs = conditional_inputs(
@@ -572,6 +440,7 @@ class ConditionalERA5HistMeanfield(TaskRule):
     depends_on = [
         conditional_load_mcs_data,
         conditional_load_meanfield_data,
+        build_hourly_output_dataset,
         gen_region_masks,
         cu.get_bins,
     ]
@@ -617,6 +486,11 @@ class ConditionalERA5HistMeanfield(TaskRule):
 
 
 class CombineConditionalERA5HistGridpoint(TaskRule):
+    """Combine the output from ConditionalERA5HistGridpoint
+
+    The output from ConditionalERA5HistGridpoint is a bit unwieldy. Combine it in a high-mem node
+    to a yeary mean.
+    """
     @staticmethod
     def rule_inputs(year):
         inputs = {

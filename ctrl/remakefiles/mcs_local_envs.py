@@ -1,3 +1,10 @@
+"""Remakefile to calculate local environments based on MCS track location at varying radii.
+
+Idea is that if you know where an MCS is, you can look at different radii from that to sample
+its ERA5 environment. So it is complementary to era5_histograms, which uses actual positions
+of MCS masks, but provides information about spatial scales. It can also be used to investigate
+the precursor environments (see LifecycleMcsLocalEnv).
+"""
 from itertools import product
 from timeit import default_timer as timer
 
@@ -114,6 +121,7 @@ class GenLatLonDistance(TaskRule):
                 lon=lons,
             ),
         )
+        da.attrs.update({'units': 'km'})
         da.to_netcdf(self.outputs['dists'])
 
 

@@ -1,3 +1,18 @@
+"""Remakefile to calculate histograms of ERA5 data conditional on MCS regions.
+
+The basic idea is to use the pixel-level data in Feng's MCS dataset to define different regions:
+* MCS core (within an MCS and <225K)
+* MCS shield (<241K or part of the precip area)
+* Cloud core (not in an MCS and <225K)
+* Cloud shield (<241K)
+* Environment (everything else)
+
+These regions are mutually exclusive, and can be used to generate histograms of ERA5 data
+by masking out the ERA5 data. To do this, the pixel-level data (including cloudnumber masks) is
+regridded onto the ERA5 grid.
+
+Some tasks use precip > 2mm/hr to define cores, but apart from this the analysis is the same.
+"""
 from collections import defaultdict
 from itertools import product
 

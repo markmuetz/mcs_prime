@@ -464,6 +464,29 @@ def get_bins(var):
     return bins, hist_mids
 
 
+def get_units(var):
+    """Units for each of these variables"""
+    if var == 'cape':
+        units = 'J * kg**-1'
+    elif var == 'tcwv':
+        units = 'mm'
+    elif var.startswith('shear'):
+        units = 'm * s**-1'
+    elif var == 'vertically_integrated_moisture_flux_div':
+        units = 'kg * m**-2 * s**-1'
+    elif var == 'RHlow':
+        units = ''
+    elif var == 'RHmid':
+        units = ''
+    elif var == 'theta_e_mid':
+        units = 'K'
+    elif var == 'delta_3h_cape':
+        units = 'J * kg**-1'
+    elif var == 'delta_3h_tcwv':
+        units = 'mm'
+    return units
+
+
 def load_lsmask(path):
     """Load the land-sea mask from the given path"""
     lsmask = {}

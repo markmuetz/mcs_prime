@@ -444,8 +444,8 @@ class CalcERA5Delta(TaskRule):
                 'description': '3 hour delta of TCWV (TCWV(t=0) - TCWV(t=-3), stored at t=0',
                 'units': 'mm'
             }
-            dsout['delta_3h_CAPE'].attrs = CAPE_attrs
-            dsout['delta_3h_TCWV'].attrs = TCWV_attrs
+            dsout['delta_3h_cape'].attrs.update(CAPE_attrs)
+            dsout['delta_3h_tcwv'].attrs.update(TCWV_attrs)
             dsout = dsout.assign_coords({'time': [time]})
 
             print(dsout)

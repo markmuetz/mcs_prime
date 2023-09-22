@@ -26,7 +26,6 @@ e5p = load_remake('era5_process.py')
 # short-serial-4hr (Note 3)   4 hrs   1hr     1   1000        30
 partition_max_jobs = {
     'short-serial': 2000,
-    'short-serial': 4,
     'par-single': 300,
     'par-multi': 300,
     'long-serial': 300,
@@ -87,5 +86,5 @@ while remaining_tasks:
 
     for task in enqueued_tasks:
         remaining_tasks.remove(task)
-    print(len(remaining_tasks))
+    print('remaining tasks:', len(remaining_tasks))
     sleep(60)

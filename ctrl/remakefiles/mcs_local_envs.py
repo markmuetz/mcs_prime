@@ -323,7 +323,7 @@ class LifecycleMcsLocalEnv(TaskRule):
         'year': cu.YEARS,
         'month': cu.MONTHS,
     }
-    # config = {'slurm': {'mem': 256000, 'partition': 'high-mem'}}
+    config = {'slurm': {'mem': 256000, 'partition': 'high-mem'}}
 
     def rule_run(self):
         # I have currently disabled generating the histograms because this takes up A LOT of space.

@@ -155,8 +155,8 @@ STATUS_DICT = {
 }
 
 # Which years will be active for processing/analysis.
-# YEARS = list(range(2000, 2021))
-YEARS = [2018]
+YEARS = list(range(2001, 2021))
+# YEARS = [2018]
 MONTHS = range(1, 13)
 # MONTHS = [2]
 
@@ -179,6 +179,35 @@ LS_REGIONS = ['all', 'land', 'ocean']
 DATES = pd.date_range(f'{YEARS[0]}-01-01', f'{YEARS[-1]}-12-31')
 DATE_KEYS = [(y, m, d) for y, m, d in zip(DATES.year, DATES.month, DATES.day)]
 YEARS_MONTHS = [(y, m) for y in YEARS for m in MONTHS]
+# Entire days are missing for some MCS Pixel data
+# [k for k, v in pixel_inputs_cache.all_pixel_inputs.items() if v == ([], {})]
+PIXEL_MISSING_DAYS = set([
+    (2004, 12, 31),
+    (2008, 12, 31),
+    (2012, 12, 31),
+    (2017, 6, 11),
+    (2017, 6, 12),
+    (2017, 6, 13),
+    (2017, 6, 14),
+    (2017, 6, 15),
+    (2017, 6, 16),
+    (2017, 6, 17),
+    (2017, 6, 18),
+    (2017, 6, 19),
+    (2017, 6, 20),
+    (2017, 6, 21),
+    (2017, 6, 22),
+    (2017, 6, 23),
+    (2017, 6, 24),
+    (2017, 6, 25),
+    (2017, 6, 26),
+    (2017, 6, 27),
+    (2017, 6, 28),
+    (2017, 6, 29),
+    (2017, 6, 30),
+])
+# Filter out these days:
+PIXEL_DATE_KEYS = [k for k in DATE_KEYS if k not in PIXEL_MISSING_DAYS]
 
 # Define static paths. Done in a system-agnostic way.
 PATH_ERA5_MODEL_LEVELS = PATHS['datadir'] / 'ERA5/ERA5_L137_model_levels_table.csv'
@@ -362,7 +391,7 @@ class PixelInputsCache:
 
     def create_cache(self):
         all_pixel_inputs = {}
-        for (year, month, day) in DATE_KEYS:
+        for (year, month, day) in PIXEL_DATE_KEYS:
             hourly_pixel_times = gen_pixel_times_for_day(year, month, day)
             # Not all files exist! Do not include those that don't.
             pixel_paths = [fmt_mcs_pixel_path(t.year, t.month, t.day, t.hour) for t in hourly_pixel_times]

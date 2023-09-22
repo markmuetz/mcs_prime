@@ -75,7 +75,7 @@ class CalcERA5Shear(TaskRule):
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
-        fmt = cu.FMT_PATH_ERA5_ML if year not in range(2000, 2006) else cu.FMT_PATH_ERA51_ML
+        fmt = cu.FMT_PATH_ERA5_ML if year not in range(2000, 2007) else cu.FMT_PATH_ERA51_ML
         e5inputs = {
             f'era5_{t}_{var}': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
             for t in e5times
@@ -207,7 +207,7 @@ class CalcERA5VIMoistureFluxDiv(TaskRule):
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
-        fmt = cu.FMT_PATH_ERA5_ML if year not in range(2000, 2006) else cu.FMT_PATH_ERA51_ML
+        fmt = cu.FMT_PATH_ERA5_ML if year not in range(2000, 2007) else cu.FMT_PATH_ERA51_ML
         e5inputs = {
             f'era5_{t}_{var}': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
             for t in e5times
@@ -304,7 +304,7 @@ class CalcERA5LayerMeans(TaskRule):
     @staticmethod
     def rule_inputs(year, month):
         e5times = cu.gen_era5_times_for_month(year, month)
-        fmt = cu.FMT_PATH_ERA5_ML if year not in range(2000, 2006) else cu.FMT_PATH_ERA51_ML
+        fmt = cu.FMT_PATH_ERA5_ML if year not in range(2000, 2007) else cu.FMT_PATH_ERA51_ML
         e5inputs = {
             f'era5_{t}_{var}': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
             for t in e5times
@@ -495,7 +495,9 @@ class GenPixelDataOnERA5Grid(TaskRule):
         outputs = {f'pixel_on_e5_{t}': p for t, p in zip(pixel_times, pixel_output_paths)}
         return outputs
 
-    var_matrix = {('year', 'month', 'day'): cu.DATE_KEYS}
+    # Note, not all days have any data in them. PIXEL_DATE_KEYS has been filtered
+    # to exclude these.
+    var_matrix = {('year', 'month', 'day'): cu.PIXEL_DATE_KEYS}
 
     def rule_run(self):
         e5cape = xr.open_dataarray(self.inputs['cape']).sel(latitude=slice(60, -60))

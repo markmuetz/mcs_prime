@@ -132,8 +132,9 @@ class PlotCombineConditionalERA5Hist(TaskRule):
         return inputs
 
     rule_outputs = {
-        f'fig_{var}': (PATHS['figdir'] / 'conditional_era5_histograms' /
-                       f'yearly_hist_{var}_{{year}}_{{core_method}}.png')
+        f'fig_{var}': (
+            PATHS['figdir'] / 'conditional_era5_histograms' / f'yearly_hist_{var}_{{year}}_{{core_method}}.png'
+        )
         for var in cu.EXTENDED_ERA5VARS
     }
 
@@ -190,8 +191,7 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
         return inputs
 
     rule_outputs = {
-        'fig': (PATHS['figdir'] / 'conditional_era5_histograms' /
-                'combined_yearly_hist_{e5vars}_{year}_tb.png')
+        'fig': (PATHS['figdir'] / 'conditional_era5_histograms' / 'combined_yearly_hist_{e5vars}_{year}_tb.png')
     }
 
     depends_on = [get_labels, plot_hist, plot_hist_probs, plot_combined_hists_for_var]
@@ -253,7 +253,6 @@ def plot_convection_hourly_hists(ds, var):
         else:
             x = ds[f'{var}_hist_mids'].values
 
-
         p = ax.plot(x, d, label=lsreg)
         ax2.plot(x, dt / dt.sum(), label=lsreg, color=p[0].get_color(), linestyle='--')
 
@@ -287,8 +286,11 @@ class PlotCombineConvectionConditionalERA5Hist(TaskRule):
         return inputs
 
     rule_outputs = {
-        f'fig_{var}': (PATHS['figdir'] / 'conditional_era5_histograms' /
-                       f'convection_yearly_hist_{var}_{{year}}_{{core_method}}.png')
+        f'fig_{var}': (
+            PATHS['figdir']
+            / 'conditional_era5_histograms'
+            / f'convection_yearly_hist_{var}_{{year}}_{{core_method}}.png'
+        )
         for var in cu.EXTENDED_ERA5VARS
     }
 
@@ -344,6 +346,7 @@ def plot_gridpoint_prob_dist(ds, var, pmin=25, pmax=75, step=16):
     plt.plot(ds[f'{var}_hist_mids'].values, dmax, 'b-', alpha=0.7)
     plt.fill_between(ds[f'{var}_hist_mids'].values, dmin, dmax, color='b', alpha=0.3)
 
+
 def plot_gridpoint_2d_prob_dist(ds, var, pmin=25, pmax=75, step=16):
     nbin = 21
 
@@ -363,17 +366,23 @@ def plot_gridpoint_2d_prob_dist(ds, var, pmin=25, pmax=75, step=16):
     elif var == 'tcwv':
         aspect = 100
     elif var == 'vertically_integrated_moisture_flux_div':
-        aspect = 1/300
+        aspect = 1 / 300
     elif var.startswith('shear'):
         aspect = 100
     else:
         aspect = 100
-    plt.imshow(h.T, origin='lower', extent=(ds[f'{var}_hist_mids'].values[0], ds[f'{var}_hist_mids'].values[-1], 0, 1), aspect=aspect)
+    plt.imshow(
+        h.T,
+        origin='lower',
+        extent=(ds[f'{var}_hist_mids'].values[0], ds[f'{var}_hist_mids'].values[-1], 0, 1),
+        aspect=aspect,
+    )
     dmin, d50, dmax = np.nanpercentile(d, [pmin, 50, pmax], axis=(0, 1))
 
     plt.plot(ds[f'{var}_hist_mids'].values, d50, 'r-')
     plt.plot(ds[f'{var}_hist_mids'].values, dmin, 'r--', alpha=0.7)
     plt.plot(ds[f'{var}_hist_mids'].values, dmax, 'r--', alpha=0.7)
+
 
 def plot_gridpoint_lat_band_hist(ds, var, latstep=20):
     plt.figure()
@@ -404,8 +413,9 @@ class PlotGridpointConditionalERA5Hist(TaskRule):
         return inputs
 
     rule_outputs = {
-        f'fig_{output}_{var}': (PATHS['figdir'] / 'conditional_era5_histograms' /
-                                f'gridpoint_{output}_yearly_hist_{var}_{{year}}.png')
+        f'fig_{output}_{var}': (
+            PATHS['figdir'] / 'conditional_era5_histograms' / f'gridpoint_{output}_yearly_hist_{var}_{{year}}.png'
+        )
         for var in cu.EXTENDED_ERA5VARS
         for output in ['conv', 'conv_prob_dist', 'conv_2d_prob_dist', 'conv_lat_band']
     }
@@ -443,7 +453,7 @@ class PlotGridpointConditionalERA5Hist(TaskRule):
 
 
 def rmse(a, b):
-    return np.sqrt(np.nanmean((a[None, None, :] - b)**2, axis=2))
+    return np.sqrt(np.nanmean((a[None, None, :] - b) ** 2, axis=2))
 
 
 def integral_diff(a, b, dx):
@@ -473,7 +483,7 @@ def gen_rmse_integral_diff(ds, vars):
             coords=dict(
                 latitude=da1.latitude,
                 longitude=da1.longitude,
-            )
+            ),
         )
         da_integral_diff = xr.DataArray(
             integral_diff(d, dc, 1),
@@ -482,7 +492,7 @@ def gen_rmse_integral_diff(ds, vars):
             coords=dict(
                 latitude=da1.latitude,
                 longitude=da1.longitude,
-            )
+            ),
         )
         dataarrays.extend([da_rmse, da_integral_diff])
     return xr.merge([cu.xr_add_cyclic_point(da) for da in dataarrays])
@@ -507,8 +517,7 @@ def plot_global_rmse_bias(ds, var):
 
     mean_bias = np.nanmean(ds[f'{var}_integral_diff'].values)
     axes[1].set_title(f'Mean bias={mean_bias}')
-    im1 = axes[1].contourf(ds.longitude, ds.latitude, ds[f'{var}_integral_diff'],
-                           levels=levels, cmap='bwr')
+    im1 = axes[1].contourf(ds.longitude, ds.latitude, ds[f'{var}_integral_diff'], levels=levels, cmap='bwr')
     plt.colorbar(im1, ax=axes[1])
 
     for ax in axes:
@@ -525,8 +534,9 @@ class PlotGridpointGlobal(TaskRule):
         return inputs
 
     rule_outputs = {
-        f'fig_{var}': (PATHS['figdir'] / 'conditional_era5_histograms' /
-                       f'gridpoint_global_yearly_hist_{var}_{{year}}.png')
+        f'fig_{var}': (
+            PATHS['figdir'] / 'conditional_era5_histograms' / f'gridpoint_global_yearly_hist_{var}_{{year}}.png'
+        )
         for var in cu.EXTENDED_ERA5VARS
     }
 
@@ -550,7 +560,8 @@ class PlotGridpointGlobal(TaskRule):
 def plot_mcs_local_var(ds, var, title, mode='time_mean'):
     # ds.load()
     fig, (ax1, ax2, ax3) = plt.subplots(
-        3, 1,
+        3,
+        1,
         subplot_kw=dict(projection=ccrs.PlateCarree()),
     )
     fig.set_size_inches((20, 15))
@@ -564,7 +575,7 @@ def plot_mcs_local_var(ds, var, title, mode='time_mean'):
 
     vmax = max(np.max(ds[var].values), np.nanmax(ds[f'mcs_local_{var}'].values))
     if mode == 'time_mean':
-        diff = (da_var.mean(dim='time') - da_mean.mean(dim='time'))
+        diff = da_var.mean(dim='time') - da_mean.mean(dim='time')
     elif mode == 'monthly':
         diff = (da_var - da_mean).mean(dim='time')
 
@@ -587,9 +598,25 @@ def plot_mcs_local_var(ds, var, title, mode='time_mean'):
     # im3 = ax3.contourf(ds.longitude, ds.latitude, diff, levels=levels2, cmap='bwr', extend='both')
     extent = (0, 360, -60, 60)
     # print(da_mean)
-    im1 = ax1.imshow(np.ma.masked_array(da_mean.mean(dim='time').values, mask=mask_sum < 10), vmin=levels1[0], vmax=levels1[-1], extent=extent)
-    im2 = ax2.imshow(np.ma.masked_array(da_var.mean(dim='time').values, mask=mask_sum < 10), vmin=levels1[0], vmax=levels1[-1], extent=extent)
-    im3 = ax3.imshow(np.ma.masked_array(diff.values, mask=mask_sum < 10), vmin=levels2[0], vmax=levels2[-1], cmap='bwr', extent=extent)
+    im1 = ax1.imshow(
+        np.ma.masked_array(da_mean.mean(dim='time').values, mask=mask_sum < 10),
+        vmin=levels1[0],
+        vmax=levels1[-1],
+        extent=extent,
+    )
+    im2 = ax2.imshow(
+        np.ma.masked_array(da_var.mean(dim='time').values, mask=mask_sum < 10),
+        vmin=levels1[0],
+        vmax=levels1[-1],
+        extent=extent,
+    )
+    im3 = ax3.imshow(
+        np.ma.masked_array(diff.values, mask=mask_sum < 10),
+        vmin=levels2[0],
+        vmax=levels2[-1],
+        cmap='bwr',
+        extent=extent,
+    )
 
     plt.colorbar(im1, ax=[ax1, ax2], extend='max')
     plt.colorbar(im3, ax=ax3, extend='both')
@@ -601,16 +628,16 @@ def plot_mcs_local_var(ds, var, title, mode='time_mean'):
 class PlotMcsLocalEnv(TaskRule):
     @staticmethod
     def rule_inputs(year, mode):
-        inputs = {f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV,
-                                                        year=year,
-                                                        month=month,
-                                                        mode=mode)
-                  for month in cu.MONTHS}
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV, year=year, month=month, mode=mode)
+            for month in cu.MONTHS
+        }
         return inputs
 
     rule_outputs = {
-        f'fig_{radius}_{plot_type}_{var}': (PATHS['figdir'] / 'mcs_local_envs' /
-                                            f'mcs_local_env_r{radius}km_{plot_type}_{var}_{{mode}}_{{year}}.png')
+        f'fig_{radius}_{plot_type}_{var}': (
+            PATHS['figdir'] / 'mcs_local_envs' / f'mcs_local_env_r{radius}km_{plot_type}_{var}_{{mode}}_{{year}}.png'
+        )
         for var in cu.EXTENDED_ERA5VARS
         for plot_type in ['time_mean', 'monthly']
         for radius in cu.RADII
@@ -665,7 +692,13 @@ def plot_monthly_mcs_local_var(ax, ds, var):
         diff *= -1e4
 
     extent = (0, 360, -60, 60)
-    im = ax.imshow(np.ma.masked_array(diff.values, mask=mask_sum < 10), vmin=levels2[0], vmax=levels2[-1], cmap='bwr', extent=extent)
+    im = ax.imshow(
+        np.ma.masked_array(diff.values, mask=mask_sum < 10),
+        vmin=levels2[0],
+        vmax=levels2[-1],
+        cmap='bwr',
+        extent=extent,
+    )
 
     if var == 'vertically_integrated_moisture_flux_div':
         label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
@@ -679,16 +712,18 @@ def plot_monthly_mcs_local_var(ax, ds, var):
 class PlotCombinedMcsLocalEnv(TaskRule):
     @staticmethod
     def rule_inputs(year, e5vars):
-        inputs = {f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV,
-                                                        year=year,
-                                                        month=month,
-                                                        mode='init')
-                  for month in cu.MONTHS}
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(
+                cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV, year=year, month=month, mode='init'
+            )
+            for month in cu.MONTHS
+        }
         return inputs
 
     rule_outputs = {
-        f'fig_{radius}': (PATHS['figdir'] / 'mcs_local_envs' /
-                          f'combined_mcs_local_env_r{radius}km_{{e5vars}}_init_{{year}}.png')
+        f'fig_{radius}': (
+            PATHS['figdir'] / 'mcs_local_envs' / f'combined_mcs_local_env_r{radius}km_{{e5vars}}_init_{{year}}.png'
+        )
         for radius in [500]
     }
 
@@ -750,16 +785,15 @@ def plot_precursor_mean_val(ds, var, radii, ax=None, N=73):
 class PlotMcsLocalEnvPrecursorMeanValue(TaskRule):
     @staticmethod
     def rule_inputs(year, N):
-        inputs = {f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV,
-                                                        year=year,
-                                                        month=month)
-                  for month in cu.MONTHS}
-                  # for month in [1]}
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+            for month in cu.MONTHS
+        }
+        # for month in [1]}
         return inputs
 
     rule_outputs = {
-        f'fig_{var}': (PATHS['figdir'] / 'mcs_local_envs' /
-                       f'mcs_local_env_precursor_mean_{var}_{{year}}_{{N}}.png')
+        f'fig_{var}': (PATHS['figdir'] / 'mcs_local_envs' / f'mcs_local_env_precursor_mean_{var}_{{year}}_{{N}}.png')
         for var in cu.EXTENDED_ERA5VARS
     }
 
@@ -787,15 +821,14 @@ class PlotMcsLocalEnvPrecursorMeanValue(TaskRule):
 class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
     @staticmethod
     def rule_inputs(year, e5vars):
-        inputs = {f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV,
-                                                        year=year,
-                                                        month=month)
-                  for month in cu.MONTHS}
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+            for month in cu.MONTHS
+        }
         return inputs
 
     rule_outputs = {
-        'fig_{e5vars}': (PATHS['figdir'] / 'mcs_local_envs' /
-                         'mcs_local_env_precursor_mean_{e5vars}_{year}.png')
+        'fig_{e5vars}': (PATHS['figdir'] / 'mcs_local_envs' / 'mcs_local_env_precursor_mean_{e5vars}_{year}.png')
     }
 
     depends_on = [
@@ -823,4 +856,3 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
             ax.set_xlabel('time from MCS initiation (hr)')
         plt.subplots_adjust(left=0.1, right=0.95, bottom=0.1, top=0.95, wspace=0.22, hspace=0.1)
         plt.savefig(self.outputs[f'fig_{self.e5vars}'])
-

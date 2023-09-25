@@ -90,6 +90,7 @@ class GenLatLonDistance(TaskRule):
     quickly by using dists < 500 or similar. They must also be rotated to a specific lon
     when used - see get_dist below.
     """
+
     rule_inputs = {'cape': fmtp(cu.FMT_PATH_ERA5_SFC, year=2020, month=1, day=1, hour=0, var='cape')}
     rule_outputs = {'dists': cu.PATH_LAT_LON_DISTS}
 
@@ -139,6 +140,7 @@ def get_dist(da, lat, lon):
 
 class CheckLatLonDistance(TaskRule):
     """Check that the lat/lon distances and get_dist are working by trying out some values"""
+
     rule_inputs = {'dists': cu.PATH_LAT_LON_DISTS}
     rule_outputs = {'fig': cu.FMT_PATH_CHECK_LAT_LON_DISTS_FIG}
 
@@ -183,6 +185,7 @@ class McsLocalEnv(TaskRule):
     * init: only capture env at MCS init
     * lifetime: capture env over full MCS track
     """
+
     @staticmethod
     def rule_inputs(year, month, day, mode):
         start = pd.Timestamp(year, month, day)
@@ -223,12 +226,12 @@ class McsLocalEnv(TaskRule):
             units = cu.get_units(var)
             attrs = {'description': f'daily mean value of {var}', 'units': units}
             data_vars[f'{var}'] = (
-                ('time', 'latitude', 'longitude'), e5ds[var].mean(dim='time').values[None, :, :], attrs
+                ('time', 'latitude', 'longitude'),
+                e5ds[var].mean(dim='time').values[None, :, :],
+                attrs,
             )
             attrs = {'description': f'local value of {var} at given radii', 'units': units}
-            data_vars[f'mcs_local_{var}'] = (
-                ('time', 'radius', 'latitude', 'longitude'), blank_data.copy(), attrs
-            )
+            data_vars[f'mcs_local_{var}'] = (('time', 'radius', 'latitude', 'longitude'), blank_data.copy(), attrs)
         attrs = {'description': 'daily sum of all masked points for given radii'}
         data_vars['dist_mask_sum'] = (('time', 'radius', 'latitude', 'longitude'), blank_data.copy(), attrs)
 
@@ -302,6 +305,7 @@ class LifecycleMcsLocalEnv(TaskRule):
     Includes the precursor env. This is captured up to 24hr before MCS init. During this
     time, the lat/lon of MCS init are used. At and after MCS init, the lat/lon of the MCS track are used.
     """
+
     @staticmethod
     def rule_inputs(year, month):
         # Both have one extra value at start/end because I need to interp to half hourly.
@@ -427,6 +431,7 @@ class LifecycleMcsLocalEnv(TaskRule):
 
 class CheckMcsLocalEnv(TaskRule):
     """Plot some figures from McsLocalEnv as a sanity check"""
+
     # ONLY works if 2020 is in analysis years.
     enabled = False
     rule_inputs = {
@@ -471,6 +476,7 @@ class CheckMcsLocalEnv(TaskRule):
 
 class CombineMonthlyMcsLocalEnv(TaskRule):
     """Combine the daily results from McsLocalEnv into a monthly file for easier subsequent analysis"""
+
     @staticmethod
     def rule_inputs(year, month, mode):
         start = pd.Timestamp(year, month, 1)

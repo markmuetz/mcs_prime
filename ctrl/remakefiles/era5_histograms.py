@@ -45,9 +45,11 @@ def conditional_inputs(year, month, precursor_time=0):
     # Loop over *daily* times, and for each day update the pixel_on_e5_{t} entry for each *hourly* time.
     pixel_on_e5_inputs = {}
     for daily_pixel_time in daily_pixel_times:
-        pixel_times, pixel_inputs = pixel_inputs_cache.all_pixel_inputs[
-            (daily_pixel_time.year, daily_pixel_time.month, daily_pixel_time.day)
-        ]
+        daily_key = (daily_pixel_time.year, daily_pixel_time.month, daily_pixel_time.day)
+        # Some MCS pixel files are completely missing for a whole day. Skip these.
+        if daily_key not in pixel_inputs_cache.all_pixel_inputs:
+            continue
+        pixel_times, pixel_inputs = pixel_inputs_cache.all_pixel_inputs[daily_key]
         pixel_output_paths = [
             fmtp(cu.FMT_PATH_PIXEL_ON_ERA5, year=t.year, month=t.month, day=t.day, hour=t.hour) for t in pixel_times
         ]

@@ -387,6 +387,9 @@ class ConditionalERA5HistHourly(TaskRule):
         gen_region_masks,
     ]
 
+    # Some tasks running out of mem with 64000.
+    config = {'slurm': {'mem': 128000, 'partition': 'high-mem'}}
+
     def rule_run(self):
         self.logger.info('Load data')
         tracks, pixel_on_e5, e5ds = conditional_load_data(

@@ -15,6 +15,7 @@ Some tasks use precip > 2mm/hr to define cores, but apart from this the analysis
 """
 from collections import defaultdict
 from itertools import product
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -35,6 +36,9 @@ era5_histograms = Remake(
 pixel_inputs_cache = cu.PixelInputsCache()
 
 
+# Caching the results of this function to file gives almost no speedup.
+# Caching to memory improves speed a lot for second/third calls.
+@lru_cache(maxsize=None)
 def conditional_inputs(year, month, precursor_time=0):
     """Generate a dict of inputs for MCS Pixel and ERA5 inputs"""
     start = pd.Timestamp(year, month, 1)

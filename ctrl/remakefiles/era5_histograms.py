@@ -446,6 +446,114 @@ class ConditionalERA5HistHourly(TaskRule):
         cu.to_netcdf_tmp_then_copy(dsout, self.outputs['hist'])
 
 
+class ConditionalERA5HistDC(TaskRule):
+    """Build a conditional (i.e. dependent on the 5 MCS regions) histogram on local solar time.
+
+    Same as ConditionalERA5HistHourly, but for the diurnal cycle (DC).
+    * Load the ERA5 data, MCS tracks and Pixel data, and land/sea mesk
+    * From the MCS data, generate regional masks
+    * Use these to sample the ERA5 data, and build a histogram of all regions in, say the MCS conv region
+    """
+
+    @staticmethod
+    def rule_inputs(year, month, core_method):
+        inputs = conditional_inputs(year, month)
+        return inputs
+
+    rule_outputs = {'hist': cu.FMT_PATH_COND_HIST_DC}
+
+    var_matrix = {
+        'year': cu.YEARS,
+        'month': cu.MONTHS,
+        'core_method': ['tb', 'precip'],
+    }
+
+    depends_on = [
+        conditional_load_mcs_data,
+        conditional_load_data,
+        cu.load_lsmask,
+        build_hourly_output_dataset,
+        cu.get_bins,
+        gen_region_masks,
+    ]
+
+    # Some tasks running out of mem with 64000.
+    config = {'slurm': {'mem': 128000, 'partition': 'high-mem'}}
+
+    def rule_run(self):
+        self.logger.info('Load data')
+        tracks, pixel_on_e5, e5ds = conditional_load_data(
+            self.logger, self.year, self.month, self.inputs
+        )
+        lsmask = cu.load_lsmask(self.inputs['ERA5_land_sea_mask'])
+
+        self.logger.info('Build output datasets')
+        dsout = build_hourly_output_dataset(pixel_on_e5)
+
+        self.logger.info('Generate region masks')
+        (
+            mcs_core_mask,
+            mcs_shield_mask,
+            cloud_core_mask,
+            cloud_shield_mask,
+            env_mask,
+        ) = gen_region_masks(
+            self.logger, pixel_on_e5, tracks, core_method=self.core_method
+        )
+
+        # Build a DC index that can be used to reference any one-hour time zone
+        # to calc LST. The way to use it is by asking dc_idx == 0 to select the
+        # time zone that has LST of 0030. This has to be calculated using the UTC
+        # time in pdtime.
+        dc_idx = np.tile(np.repeat(np.arange(24), 60), (481, 1))
+        # Has shape of (481, 1440)
+        assert dc_idx.shape == e5ds.cape[0].shape
+
+        self.logger.info('Calc hists at each time')
+        for i, time in enumerate(pixel_on_e5.time.values):
+            pdtime = pd.Timestamp(time)
+            if pdtime.hour == 0:
+                print(pdtime)
+
+            def hist(data):
+                # closure to save space.
+                return np.histogram(data, bins=dsout.coords[f'{var}_bins'].values)[0]
+
+            for var, lsreg in product(e5ds.data_vars.keys(), cu.LS_REGIONS):
+                data = e5ds[var].sel(time=pdtime).values
+                # Loop over the LST index:
+                for lst_idx in range(24):
+                    # Calc hists. These 5 regions are mutually exclusive.
+                    # Two changes from the equivalent in ConditionalERA5HistHourly:
+                    # * += the value (in loop).
+                    # * (dc_idx == ((lst_idx - pdtime.hour) % 24))
+                    #   - This is a selection statement that chooses the data corresponding to each 24-hr
+                    #     LST.
+                    #   - N.B. times are ON THE HALF HOUR. This means I can use lon = (0, 14.75) to represent
+                    #     LST = 00:30.
+                    # lst_idx = 0: LST = 0030; pdtime.hour = 0; UTC = 0030. (dc_idx == 0) selects lon = (0, 14.75)
+                    # lst_idx = 1: LST = 0130; pdtime.hour = 0; UTC = 0030. (dc_idx == 1) selects lon = (15, 29.75)
+                    # lst_idx = 0: LST = 0030; pdtime.hour = 1; UTC = 0130. (dc_idx == 23) selects lon = (345, 359.75)
+                    dsout[f'{lsreg}_{var}_MCS_shield'][lst_idx] += hist(
+                        data[mcs_shield_mask[i] & lsmask[lsreg] & (dc_idx == ((lst_idx - pdtime.hour) % 24))]
+                    )
+                    dsout[f'{lsreg}_{var}_MCS_core'][lst_idx] += hist(
+                        data[mcs_core_mask[i] & lsmask[lsreg] & (dc_idx == ((lst_idx - pdtime.hour) % 24))]
+                    )
+                    dsout[f'{lsreg}_{var}_cloud_shield'][lst_idx] += hist(
+                        data[cloud_shield_mask[i] & lsmask[lsreg] & (dc_idx == ((lst_idx - pdtime.hour) % 24))]
+                    )
+                    dsout[f'{lsreg}_{var}_cloud_core'][lst_idx] += hist(
+                        data[cloud_core_mask[i] & lsmask[lsreg] & (dc_idx == ((lst_idx - pdtime.hour) % 24))]
+                    )
+                    dsout[f'{lsreg}_{var}_env'][lst_idx] += hist(
+                        data[env_mask[i] & lsmask[lsreg] & (dc_idx == ((lst_idx - pdtime.hour) % 24))]
+                    )
+
+        self.logger.info('write dsout')
+        cu.to_netcdf_tmp_then_copy(dsout, self.outputs['hist'])
+
+
 class ConditionalERA5HistGridpoint(TaskRule):
     """As ConditionalERA5HistHourly, but instead of grouping data by hour, do it by gridpoint
 

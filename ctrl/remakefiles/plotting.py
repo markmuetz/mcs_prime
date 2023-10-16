@@ -844,8 +844,12 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
         fig, axes = plt.subplots(2, 2, sharex=True)
         fig.set_size_inches((10, 8))
         e5vars = self.e5vars.split('-')
+        print(e5vars)
 
-        with xr.open_mfdataset(self.inputs.values()) as ds:
+        with xr.open_mfdataset(self.inputs.values(), combine='nested', concat_dim='tracks') as ds:
+            # tracks is monotonically increasing *within each year*. Apply a conversion to
+            # monotonically increasing over all 20 years.
+            ds['tracks'] = np.arange(0, ds.dims['tracks'], 1, dtype=int)
             for ax, var in zip(axes.flatten(), e5vars):
                 print(var)
                 plot_precursor_mean_val(ds, var, cu.RADII[1:], ax=ax, N=73)

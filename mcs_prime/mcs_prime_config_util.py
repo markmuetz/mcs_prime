@@ -21,7 +21,7 @@ import remake
 from remake import util
 
 
-PRODUCTION = True
+PRODUCTION = False
 
 # Define paths on different systems. The most important ones are "jasmin".
 ALL_PATHS = {
@@ -156,7 +156,7 @@ STATUS_DICT = {
 
 # Which years will be active for processing/analysis.
 YEARS = list(range(2001, 2021))
-# YEARS = [2018]
+# YEARS = [2020]
 MONTHS = range(1, 13)
 # MONTHS = [2]
 
@@ -301,6 +301,9 @@ FMT_PATH_PRECURSOR_COND_HIST = (
 )
 FMT_PATH_COND_HIST_HOURLY = (
     PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'core{core_method}_hourly_hist_{year}_{month:02d}.nc'
+)
+FMT_PATH_COND_HIST_DC = (
+    PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'core{core_method}_dc_hist_{year}_{month:02d}.nc'
 )
 FMT_PATH_COND_MCS_LIFECYCLE_HIST_HOURLY = (
     PATHS['outdir'] / 'conditional_era5_histograms' / '{year}' / 'lifecycle_hourly_hist_{year}_{month:02d}.nc'

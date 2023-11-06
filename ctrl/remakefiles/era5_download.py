@@ -30,7 +30,54 @@ c.retrieve(
     'download.nc')
 """
 
+class Era5DownloadSfcYear(TaskRule):
+    """Download additional ERA5 Surface data
+
+    Output is different from BADC ERA5 data:
+    Only one file saved per year to cut down on (slow) queue times on Copernicus API.
+    Some variables are not present that would be useful, e.g. CIN.
+    """
+    rule_inputs = {}
+    rule_outputs = {'output': (DATADIR / 'ecmwf-era5/data/oper/an_sfc/'
+                               'ecmwf-era5_oper_an_sfc_'
+                               '{year}.{variable}.nc')}
+
+    var_matrix = {
+        'year': cu.YEARS,
+        'variable': ['cin']
+    }
+    req_var_names = {
+        'cin': 'convective_inhibition',
+    }
+
+    def rule_run(self):
+        var_name = self.req_var_names[self.variable]
+
+        msg = f'Download {self.variable} for {self.year}'
+        print(msg)
+        print('=' * len(msg))
+
+        output_path = self.outputs['output']
+        # Create a tmp path, save download to this, then mv to actual output_path.
+        # Ensures that output_path will *only* be present if download has completed.
+        request_dict = {
+            'product_type': 'reanalysis',
+            'format': 'netcdf',
+            'variable': var_name,
+            'year': f'{self.year}',
+            'month': [f'{m:02d}' for m in range(1, 13)],
+            'day': [f'{d:02d}' for d in range(1, 32)],
+            'time': [f'{h:02d}:00' for h in range(24)],
+        }
+        c.retrieve(
+            'reanalysis-era5-single-levels',
+            request_dict,
+            str(output_path)
+        )
+
+
 class Era5DownloadSfc(TaskRule):
+    enabled = False
     """Download additional ERA5 Surface data
 
     Output in exactly the same filename format at BADC ERA5 data:

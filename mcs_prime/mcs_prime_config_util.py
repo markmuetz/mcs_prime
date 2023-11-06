@@ -33,6 +33,7 @@ ALL_PATHS = {
         "outdir": Path("/home/markmuetz/MCS_PRIME_output/output"),
         "figdir": Path("/home/markmuetz/MCS_PRIME_output/figs"),
         "dropboxdir": Path("/home/markmuetz/Dropbox/Academic/Projects/MCS_PRIME/Shared/MCS_PRIME_figures"),
+        "era5dir": Path("/does/not/exist"),
     },
     "jasmin": {
         "datadir": Path("/gws/nopw/j04/mcs_prime/mmuetz/data/"),

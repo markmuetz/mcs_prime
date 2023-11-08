@@ -1,5 +1,9 @@
+from pathlib import Path
+import shutil
+
 import cdsapi
 import pandas as pd
+import xarray as xr
 
 from remake import Remake, TaskRule
 from remake.util import tmp_to_actual_path
@@ -74,6 +78,65 @@ class Era5DownloadSfcYear(TaskRule):
             request_dict,
             str(output_path)
         )
+
+
+class Era5SfcSplitYearlyToHourly(TaskRule):
+    """So that the files have the same format as the ones on /badc, split yearly to hourly.
+
+    Output in exactly the same filename format at BADC ERA5 data:
+    e.g. /badc/ecmwf-era5/data/oper/an_sfc/2020/01/01/ecmwf-era5_oper_an_sfc_202001010000.cape.nc
+    """
+    rule_inputs = {'yearly_input': Era5DownloadSfcYear.rule_outputs['output']}
+    @staticmethod
+    def rule_outputs(year, variable):
+        starttime = pd.Timestamp(year, 1, 1, 0, 0)
+        endtime = starttime + pd.DateOffset(years=1) - pd.Timedelta(hours=1)
+        datetimes = pd.date_range(starttime, endtime, freq='H')
+
+        outputs = {f'{t}': (DATADIR / 'ecmwf-era5/data/oper/an_sfc/'
+                            f'{t.year}/{t.month:02d}/{t.day:02d}/'
+                            f'ecmwf-era5_oper_an_sfc_'
+                            f'{t.year}{t.month:02d}{t.day:02d}{t.hour:02d}{t.minute:02d}.{variable}.nc')
+                            for t in datetimes}
+        return outputs
+
+
+    var_matrix = {
+        'year': cu.YEARS,
+        'variable': ['cin']
+    }
+    req_var_names = {
+        'cin': 'convective_inhibition',
+    }
+
+    def rule_run(self):
+        # Save to scratch first for faster nc writes.
+        tmpdir = Path('/work/scratch-nopw2/mmuetz')
+
+        var_name = self.req_var_names[self.variable]
+
+        starttime = pd.Timestamp(self.year, 1, 1, 0, 0)
+        endtime = starttime + pd.DateOffset(years=1) - pd.Timedelta(hours=1)
+        datetimes = pd.date_range(starttime, endtime, freq='H')
+
+        ds_yearly = xr.open_dataset(self.inputs['yearly_input'])
+
+        for time in datetimes:
+            msg = f'Extract {self.variable} for {time}'
+            print(msg)
+            print('=' * len(msg))
+
+            output_path = self.outputs[f'{time}']
+            assert output_path.is_absolute()
+            tmp_path = tmpdir / Path(*output_path.parts[1:])
+            tmp_path.parent.mkdir(exist_ok=True, parents=True)
+
+            # With this one simple trick you can preserve the time dimension!
+            # Taking an inclusive slice from time to time selects one value
+            # and keeps the time dim in the output file.
+            ds = ds_yearly.sel(time=slice(time, time))
+            ds.to_netcdf(tmp_path)
+            shutil.move(tmp_path, output_path)
 
 
 class Era5DownloadSfc(TaskRule):

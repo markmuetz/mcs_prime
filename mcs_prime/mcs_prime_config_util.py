@@ -165,13 +165,14 @@ MONTHS = range(1, 13)
 RADII = [1, 100, 200, 500, 1000]
 
 # Reusable list of ERA5 base and derived variables (internal names).
-ERA5VARS = ['cape', 'tcwv']
+ERA5VARS = ['cape', 'tcwv'] # Already there on /badc/ecmwf-era5/
+DL_ERA5VARS = ['cin'] # Downloaded.
 SHEAR_ERA5VARS = ['shear_0', 'shear_1', 'shear_2', 'shear_3']
 VIMFD_ERA5VARS = ['vertically_integrated_moisture_flux_div']
 LAYER_MEANS_ERA5VARS = ['RHlow', 'RHmid', 'theta_e_mid']
 DELTA_ERA5VARS = ['delta_3h_cape', 'delta_3h_tcwv']
 PROC_ERA5VARS = SHEAR_ERA5VARS + VIMFD_ERA5VARS + LAYER_MEANS_ERA5VARS + DELTA_ERA5VARS
-EXTENDED_ERA5VARS = ERA5VARS + PROC_ERA5VARS
+EXTENDED_ERA5VARS = ERA5VARS + DL_ERA5VARS + PROC_ERA5VARS
 
 # Different regions.
 LS_REGIONS = ['all', 'land', 'ocean']
@@ -249,6 +250,18 @@ FMT_PATH_ERA5_SFC = (
     / 'data/oper/an_sfc/{year}/{month:02d}/{day:02d}'
     / 'ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}{hour:02d}00.{var}.nc'
 )
+# Path for downloaded ERA5 data.
+FMT_PATH_DL_ERA5_SFC = (
+    PATHS['datadir'] / 'ecmwf-era5'
+    / 'data/oper/an_sfc/{year}/{month:02d}/{day:02d}'
+    / 'ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}{hour:02d}00.{var}.nc'
+)
+
+def era5_sfc_fmtp(var, year, month, day, hour):
+    if var in DL_ERA5VARS:
+        return util.format_path(FMT_PATH_DL_ERA5_SFC, year=year, month=month, day=day, hour=hour, var=var)
+    else:
+        return util.format_path(FMT_PATH_ERA5_SFC, year=year, month=month, day=day, hour=hour, var=var)
 # Bias ONLY affected stratosphere - no change in surface vars.
 # FMT_PATH_ERA51_SFC = (
 #     PATHS['era5dir']
@@ -556,6 +569,8 @@ def get_bins(var):
     """Bins used for histograms for each of these variables"""
     if var == 'cape':
         bins = np.linspace(0, 5000, 101)
+    elif var == 'cin':
+        bins = np.linspace(0, 1000, 101)
     elif var == 'tcwv':
         bins = np.linspace(0, 100, 101)
     elif var.startswith('shear'):
@@ -572,6 +587,8 @@ def get_bins(var):
         bins = np.linspace(-1000, 1000, 101)
     elif var == 'delta_3h_tcwv':
         bins = np.linspace(-100, 100, 101)
+    else:
+        raise Exception(f'No bins for {var}')
     hist_mids = (bins[1:] + bins[:-1]) / 2
     return bins, hist_mids
 
@@ -579,6 +596,8 @@ def get_bins(var):
 def get_units(var):
     """Units for each of these variables"""
     if var == 'cape':
+        units = 'J * kg**-1'
+    elif var == 'cin':
         units = 'J * kg**-1'
     elif var == 'tcwv':
         units = 'mm'
@@ -596,6 +615,8 @@ def get_units(var):
         units = 'J * kg**-1'
     elif var == 'delta_3h_tcwv':
         units = 'mm'
+    else:
+        raise Exception(f'No bins for {var}')
     return units
 
 

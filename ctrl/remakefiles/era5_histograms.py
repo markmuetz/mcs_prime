@@ -76,16 +76,9 @@ def conditional_inputs(year, month, precursor_time=0):
     pixel_on_e5_inputs['tracks'] = cu.fmt_mcs_stats_path(year)
 
     e5inputs = {
-        f'era5_{t}_{var}': fmtp(
-            cu.FMT_PATH_ERA5_SFC,
-            year=t.year,
-            month=t.month,
-            day=t.day,
-            hour=t.hour,
-            var=var,
-        )
+        f'era5_{t}_{var}': cu.era5_sfc_fmtp(var, t.year, t.month, t.day, t.hour)
         for t in e5times
-        for var in cu.ERA5VARS
+        for var in cu.ERA5VARS + cu.DL_ERA5VARS
     }
     e5proc_shear = {
         f'era5p_shear_{t}': fmtp(

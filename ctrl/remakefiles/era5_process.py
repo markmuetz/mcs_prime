@@ -388,9 +388,8 @@ class CalcERA5Delta(TaskRule):
         end = pd.Timestamp(year, month, 1) + pd.DateOffset(months=1) - pd.Timedelta(hours=1)
         e5times = pd.date_range(start, end, freq='H')
 
-        fmt = cu.FMT_PATH_ERA5_SFC
         e5inputs = {
-            f'era5_{t}_{var}': fmtp(fmt, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
+            f'era5_{t}_{var}': cu.era5_sfc_fmtp(var, t.year, t.month, t.day, t.hour)
             for t in e5times
             for var in ['cape', 'tcwv']
         }
@@ -593,7 +592,7 @@ class CalcERA5MeanField(TaskRule):
         # e5times = pd.date_range(start, end, freq='H')
         e5times = cu.gen_era5_times_for_month(year, month)
         e5inputs = {
-            f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5_SFC, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
+            f'era5_{t}_{var}': cu.era5_sfc_fmtp(var, t.year, t.month, t.day, t.hour)
             for t in e5times
             for var in cu.ERA5VARS
         }

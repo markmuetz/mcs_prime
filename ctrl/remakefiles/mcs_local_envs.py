@@ -28,9 +28,9 @@ mcs_local_envs = Remake(config=dict(slurm=slurm_config, content_checks=False))
 def e5_data_inputs(e5times):
     """Generate input paths for all ERA5 variables, base and processed"""
     inputs = {
-        f'era5_{t}_{var}': fmtp(cu.FMT_PATH_ERA5_SFC, year=t.year, month=t.month, day=t.day, hour=t.hour, var=var)
+        f'era5_{t}_{var}': cu.era5_sfc_fmtp(var, t.year, t.month, t.day, t.hour)
         for t in e5times
-        for var in cu.ERA5VARS
+        for var in cu.ERA5VARS + cu.DL_ERA5VARS
     }
     inputs.update(
         {

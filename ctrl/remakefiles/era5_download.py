@@ -16,7 +16,8 @@ slurm_config = {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '20:00:00'
 era5_download = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
 DATADIR = cu.PATHS['datadir']
-YEARS_MONTHS = [(y, m) for y in cu.YEARS for m in cu.MONTHS]
+YEARS = [cu.YEARS[0] - 1] + cu.YEARS + [cu.YEARS[-1] + 1]  # extend by one year at start/end
+YEARS_MONTHS = [(y, m) for y in YEARS for m in cu.MONTHS]
 
 # E.g. (generated from https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-single-levels?tab=form):
 """
@@ -47,7 +48,7 @@ class Era5DownloadSfcYear(TaskRule):
                                '{year}.{variable}.nc')}
 
     var_matrix = {
-        'year': cu.YEARS,
+        'year': YEARS,
         'variable': ['cin']
     }
     req_var_names = {
@@ -102,7 +103,7 @@ class Era5SfcSplitYearlyToHourly(TaskRule):
 
 
     var_matrix = {
-        'year': cu.YEARS,
+        'year': YEARS,
         'variable': ['cin']
     }
     req_var_names = {
@@ -149,7 +150,7 @@ class Era5DownloadSfc(TaskRule):
     """
     @staticmethod
     def rule_inputs(year, month, variable):
-        if year != cu.YEARS[0]:
+        if year != YEARS[0]:
             inputs = {'prev_year_month': (DATADIR / 'ecmwf-era5/data/oper/an_sfc/'
                                           f'{year - 1}_{month:02d}_{variable}.done')}
         else:
@@ -162,11 +163,8 @@ class Era5DownloadSfc(TaskRule):
         endtime = starttime + pd.DateOffset(months=1) - pd.Timedelta(hours=1)
         datetimes = pd.date_range(starttime, endtime, freq='H')
 
-        outputs = {f'{t}': (DATADIR / 'ecmwf-era5/data/oper/an_sfc/'
-                            f'{t.year}/{t.month:02d}/{t.day:02d}/'
-                            f'ecmwf-era5_oper_an_sfc_'
-                            f'{t.year}{t.month:02d}{t.day:02d}{t.hour:02d}{t.minute:02d}.{variable}.nc')
-                            for t in datetimes}
+        outputs = {f'{t}': cu.era5_sfc_fmtp(variable, t.year, t.month, t.day, t.hour)
+                   for t in datetimes}
         outputs['year_month'] = (DATADIR / 'ecmwf-era5/data/oper/an_sfc/'
                                  f'{year}_{month:02d}_{variable}.done')
         return outputs

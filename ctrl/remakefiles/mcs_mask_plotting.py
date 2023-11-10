@@ -13,12 +13,12 @@ settings_list = [
     {
         'name': 'tcwv1',
         'time': pd.Timestamp(2020, 1, 1, 6, 30),
-        'plot_kwargs': dict(var='tcwv', extent=(-25, -5, -2.5, 7.5), grid_x=[-20, -15, -10], grid_y=[-2, 0, 2, 4, 6]),
+        'plot_kwargs': dict(var='tcwv', extent=(-25, -5, -2.5, 7.5), grid_x=[-20, -15, -10], grid_y=[-2, 0, 2, 4, 6], cbar_kwargs=dict(orientation='horizontal')),
     },
     {
         'name': 'cape1',
         'time': pd.Timestamp(2020, 1, 1, 6, 30),
-        'plot_kwargs': dict(var='cape', extent=(-25, -5, -2.5, 7.5), grid_x=[-20, -15, -10], grid_y=[-2, 0, 2, 4, 6]),
+        'plot_kwargs': dict(var='cape', extent=(-25, -5, -2.5, 7.5), grid_x=[-20, -15, -10], grid_y=[-2, 0, 2, 4, 6], cbar_kwargs=dict(orientation='horizontal')),
     },
 ]
 settings_dict = dict([(s['name'], s) for s in settings_list])
@@ -41,7 +41,7 @@ class PlotMcsMasks(TaskRule):
     @staticmethod
     def rule_outputs(settings_name):
         settings = settings_dict[settings_name]
-        filename = f'{settings["time"]}_{settings_name}.png'
+        filename = f'{settings["time"]}_{settings_name}.pdf'
         return {f'fig_{settings_name}': PATHS['figdir'] / 'mcs_mask_plotting' / filename}
 
     depends_on = [
@@ -54,6 +54,7 @@ class PlotMcsMasks(TaskRule):
     }
 
     def rule_run(self):
+
         settings = settings_dict[self.settings_name]
         time = settings['time']
         print(settings)

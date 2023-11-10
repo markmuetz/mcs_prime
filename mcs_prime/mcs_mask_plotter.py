@@ -139,8 +139,8 @@ class McsMaskPlotter:
         cbar_kwargs={},
     ):
         if ax is None:
-            fig, ax = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()})
-            fig.set_size_inches(10, 7.2)
+            fig, ax = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()}, layout='constrained')
+            fig.set_size_inches(5, 3.4)
         if time is None:
             time = self.plotter_data.times[0]
         if extent is None:
@@ -177,8 +177,8 @@ class McsMaskPlotter:
                 pixel_on_e5.longitude,
                 pixel_on_e5.latitude,
                 pixel_on_e5.precipitation,
-                levels=[2, 5, 10],
-                colors=['purple', 'purple', 'purple'],
+                levels=[3, 10],
+                colors=['purple', 'purple'],
                 zorder=5,
             )
         if show_field:
@@ -220,7 +220,9 @@ class McsMaskPlotter:
 
         ax.coastlines()
         if grid_x and grid_y:
-            ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False, xlocs=grid_x, ylocs=grid_y)
+            gl = ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False, xlocs=grid_x, ylocs=grid_y)
+            gl.bottom_labels = False
+            gl.right_labels = False
 
         if show_colourbar:
             if var == 'tcwv':
@@ -228,6 +230,7 @@ class McsMaskPlotter:
             elif var == 'cape':
                 plt.colorbar(im, ax=ax, label='CAPE (J kg$^{-1}$)', **cbar_kwargs)
         # ax.contour(e5data.longitude, e5data.latitude, e5data.tcwv)
+
 
         ax.set_xlim((lonmin, lonmax))
         ax.set_ylim((latmin, latmax))

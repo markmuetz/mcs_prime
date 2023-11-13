@@ -1405,7 +1405,7 @@ class PlotCombinedMcsLocalEnv(TaskRule):
                 plt.savefig(self.outputs[f'fig_{radius}'])
 
 
-def plot_precursor_mean_val(ds, var, radii, ax=None, N=73, colours=None):
+def plot_precursor_mean_val(ds, var, radii, ax=None, N=73, colours=None, show_spread=False):
     if colours is None:
         colours = [None] * len(radii)
     ds[f'mean_{var}'].load()
@@ -1419,13 +1419,31 @@ def plot_precursor_mean_val(ds, var, radii, ax=None, N=73, colours=None):
             plot_kwargs = {'color': c}
         else:
             plot_kwargs = {}
-        data = ds[f'mean_{var}'].sel(radius=r).isel(times=slice(0, N)).mean(dim='tracks')
+        plot_data = ds[f'mean_{var}'].sel(radius=r).isel(times=slice(0, N)).mean(dim='tracks')
+        if show_spread:
+            data = ds[f'mean_{var}'].sel(radius=r).isel(times=slice(0, N)).values
+            d25, d75 = np.nanpercentile(data, [25, 75], axis=0)
         if var == 'vertically_integrated_moisture_flux_div':
-            ax.plot(range(-24, -24 + N), -data * 1e4, label=f'{r} km', **plot_kwargs)
+            p = ax.plot(range(-24, -24 + N), -plot_data * 1e4, label=f'{r} km', **plot_kwargs)
+            if show_spread:
+                spread_plot_kwargs = {**plot_kwargs, **{'linestyle': '--'}}
+                if 'color' not in spread_plot_kwargs:
+                    spread_plot_kwargs['color'] = p[0].get_color()
+                print(spread_plot_kwargs)
+                ax.plot(range(-24, -24 + N), -d25 * 1e4, **spread_plot_kwargs)
+                ax.plot(range(-24, -24 + N), -d75 * 1e4, **spread_plot_kwargs)
+
             ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
             ax.set_ylabel(ylabel)
         else:
-            ax.plot(range(-24, -24 + N), data, label=f'{r} km', **plot_kwargs)
+            p = ax.plot(range(-24, -24 + N), plot_data, label=f'{r} km', **plot_kwargs)
+            if show_spread:
+                spread_plot_kwargs = {**plot_kwargs, **{'linestyle': '--'}}
+                if 'color' not in spread_plot_kwargs:
+                    spread_plot_kwargs['color'] = p[0].get_color()
+                print(spread_plot_kwargs)
+                ax.plot(range(-24, -24 + N), d25, **spread_plot_kwargs)
+                ax.plot(range(-24, -24 + N), d75, **spread_plot_kwargs)
             ax.set_ylabel(get_labels(var))
 
     ax.axvline(x=0)
@@ -1463,7 +1481,6 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
     var_matrix = {
         'years': [
             cu.YEARS,
-            list(range(2006, 2021)),
         ],
         'e5vars': [
             'cape-tcwv-shear_0-vertically_integrated_moisture_flux_div'
@@ -1492,7 +1509,60 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
         ds.close()
 
 
-class PlotCombinedMcsLocalEnvPrecursorMeanValueDC(TaskRule):
+class PlotCombinedMcsLocalEnvPrecursorMeanValueSpread(TaskRule):
+    @staticmethod
+    def rule_inputs(years, e5vars):
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+            for year in years
+            for month in cu.MONTHS
+        }
+        return inputs
+
+    @staticmethod
+    def rule_outputs(years, e5vars):
+        ystr = f'{years[0]}-{years[-1]}'
+        outputs = {
+            'fig': (PATHS['figdir'] / 'mcs_env_cond_figs' /
+                    f'mcs_local_env_precursor_mean_spread_{e5vars}_{ystr}.png')
+        }
+        return outputs
+
+    depends_on = [
+        plot_precursor_mean_val,
+    ]
+
+    var_matrix = {
+        'years': [
+            cu.YEARS,
+        ],
+        'e5vars': [
+            'cape-tcwv-shear_0-vertically_integrated_moisture_flux_div'
+        ],
+    }
+
+    def rule_run(self):
+
+        fig, axes = plt.subplots(2, 2, sharex=True)
+        fig.set_size_inches((10, 8))
+        e5vars = self.e5vars.split('-')
+
+        ds = xr.open_mfdataset(list(self.inputs.values()), combine='nested', concat_dim='tracks')
+        ds['tracks'] = np.arange(0, ds.dims['tracks'], 1, dtype=int)
+        for ax, var in zip(axes.flatten(), e5vars):
+            print(var)
+            plot_precursor_mean_val(ds, var, [cu.RADII[2], cu.RADII[4]], ax=ax, N=73, show_spread=True)
+            ax.set_xlim((-24, 48))
+
+        axes[0, 0].legend()
+        for ax in axes[1]:
+            ax.set_xlabel('time from MCS initiation (hr)')
+        plt.subplots_adjust(left=0.1, right=0.95, bottom=0.1, top=0.95, wspace=0.22, hspace=0.1)
+        plt.savefig(self.outputs[f'fig'])
+        ds.close()
+
+
+class PlotCombinedMcsLocalEnvPrecursorMeanValueDCSpread(TaskRule):
     @staticmethod
     def rule_inputs(years, e5var, mode):
         inputs = {
@@ -1521,7 +1591,6 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueDC(TaskRule):
         'years': [
             # [2020],
             cu.YEARS,
-            list(range(2006, 2021)),
         ],
         'e5var': cu.EXTENDED_ERA5VARS,
         'mode': ['diurnal_cycle', 'seasonal'],
@@ -1537,7 +1606,11 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueDC(TaskRule):
         if self.mode == 'diurnal_cycle':
             lst_offset = tracks.dstracks.meanlon.values[:, 0] / 360 * 24 * 3600 * 1e3  # in ms.
             lst_track_start_times = track_start_times + lst_offset.astype('timedelta64[ms]')
-            N = 24
+            N = 8
+            hour_groups = [
+                [0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11],
+                [12, 13, 14], [15, 16, 17], [18, 19, 20], [21, 22, 23]
+            ]
         elif self.mode == 'seasonal':
             seasons = [[12, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]]
             N = 4
@@ -1552,13 +1625,14 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueDC(TaskRule):
         cmap = mpl.colormaps['twilight_shifted']
         for i in range(N):
             if self.mode == 'diurnal_cycle':
-                time_filter = lst_track_start_times.hour == i
+                hours = hour_groups[i]
+                time_filter = lst_track_start_times.hour.isin(hours)
             elif self.mode == 'seasonal':
                 months = seasons[i]
                 time_filter = track_start_times.month.isin(months)
             c = cmap(i / N)
             print(i, time_filter.sum())
-            plot_precursor_mean_val(ds.isel(tracks=time_filter), self.e5var, cu.RADII[2:3], ax=ax, N=73, colours=[c])
+            plot_precursor_mean_val(ds.isel(tracks=time_filter), self.e5var, cu.RADII[2:3], ax=ax, N=73, colours=[c], show_spread=True)
             ax.set_xlim((-24, 48))
 
         # axes[0, 0].legend()
@@ -1569,7 +1643,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueDC(TaskRule):
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
             sm.set_array([])
             plt.colorbar(sm, cax=cax, orientation='horizontal',
-                         ticks=np.arange(24), boundaries=np.linspace(-0.5, 23.5, 25))
+                         ticks=np.arange(24), boundaries=np.linspace(-0.5, 23.5, 9))
         elif self.mode == 'seasonal':
             norm = mpl.colors.Normalize(vmin=0, vmax=4)
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)

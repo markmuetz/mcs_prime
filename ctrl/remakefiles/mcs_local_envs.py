@@ -63,7 +63,7 @@ def load_e5_data(logger, e5times, inputs):
     """Load the ERA5 data"""
     mcs_times = e5times[:-1] + pd.Timedelta(minutes=30)
 
-    e5paths = [inputs[f'era5_{t}_{v}'] for t in e5times for v in cu.ERA5VARS]
+    e5paths = [inputs[f'era5_{t}_{v}'] for t in e5times for v in cu.ERA5VARS + cu.DL_ERA5VARS]
     e5proc_shear_paths = [inputs[f'shear_{t}'] for t in e5times]
     e5proc_vimfd_paths = [inputs[f'vimfd_{t}'] for t in e5times]
     e5proc_layer_means_paths = [inputs[f'layer_means_{t}'] for t in e5times]
@@ -257,12 +257,21 @@ class McsLocalEnv(TaskRule):
 
             if self.mode == 'init':
                 # If init (== MCS initiation), only get first value of lat/lon.
-                time_mask = tracks.dstracks.base_time.values[:, 0] == nptime
+                # This is a little harder: I need to make a mask with the first time that
+                # each track has mcs_status == 1 in it.
+                mcs_status_first = np.zeros_like(tracks.dstracks.mcs_status.values, dtype=bool)
+                for i in range(len(tracks.dstracks.tracks)):
+                    for j in range(400):
+                        if tracks.dstracks.mcs_status.values[i, j]:
+                            mcs_status_first[i, j] = True
+                            break
+                time_mask = (tracks.dstracks.base_time.values[:, 0] == nptime) & mcs_status_first
                 mcs_lats = tracks.dstracks.meanlat.values[:, 0][time_mask]
                 mcs_lons = tracks.dstracks.meanlon.values[:, 0][time_mask]
             elif self.mode == 'lifetime':
                 # If lifetime, get all values of lat/lon along track.
-                time_mask = tracks.dstracks.base_time.values == nptime
+                # Make sure track is an MCS as well using mcs_status
+                time_mask = (tracks.dstracks.base_time.values == nptime) & (tracks.dstracks.mcs_status.values)
                 mcs_lats = tracks.dstracks.meanlat.values[time_mask]
                 mcs_lons = tracks.dstracks.meanlon.values[time_mask]
 

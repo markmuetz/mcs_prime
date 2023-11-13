@@ -156,7 +156,9 @@ STATUS_DICT = {
 }
 
 # Which years will be active for processing/analysis.
-YEARS = list(range(2001, 2021))
+# As in Feng et al. 2021, we leave out years 2003-5 due to poor availability of satellite IR.
+YEARS = [2001, 2002] + list(range(2006, 2021))
+# YEARS = list(range(2001, 2021))
 # YEARS = [2020]
 MONTHS = range(1, 13)
 # MONTHS = [2]
@@ -694,7 +696,9 @@ def gen_region_masks(logger, pixel_on_e5, tracks, core_method='tb'):
         # tmask is a 2d mask that spans multiple tracks, getting
         # the cloudnumbers at *one time only*, that can be
         # used to get cloudnumbers.
-        tmask = (ts.dstracks.base_time == pdtime).values
+        # Note, I also need to make sure that the tracked cloud is an MCS
+        # use mcs_status to do so.
+        tmask = (ts.dstracks.base_time == pdtime).values & ts.dstracs.mcs_status.values
         if tmask.sum() == 0:
             logger.info(f'No times matched in tracks DB for {pdtime}')
             cns = np.array([])

@@ -259,6 +259,18 @@ FMT_PATH_DL_ERA5_SFC = (
     / 'ecmwf-era5_oper_an_sfc_{year}{month:02d}{day:02d}{hour:02d}00.{var}.nc'
 )
 
+def era5_ml_fmtp(var, year, month, day, hour):
+    if var in DL_ERA5VARS:
+        raise Exception('Not implemented yet')
+        return util.format_path(FMT_PATH_DL_ERA5_SFC, year=year, month=month, day=day, hour=hour, var=var)
+    else:
+        if year <= 2006:
+            fmt = FMT_PATH_ERA51_ML
+        else:
+            fmt = FMT_PATH_ERA5_ML
+        return util.format_path(fmt, year=year, month=month, day=day, hour=hour, var=var)
+
+
 def era5_sfc_fmtp(var, year, month, day, hour):
     if var in DL_ERA5VARS:
         return util.format_path(FMT_PATH_DL_ERA5_SFC, year=year, month=month, day=day, hour=hour, var=var)
@@ -666,7 +678,7 @@ def xr_add_cyclic_point(da, lon_name='longitude'):
     return out_da
 
 
-def gen_region_masks(logger, pixel_on_e5, tracks, core_method='tb'):
+def gen_region_masks(logger, pixel_on_e5, tracks, core_method='tb', use_mcs_status=False):
     """Core function to generate MCS region masks from Pixel and tracks data
 
     Uses Zhe Feng's dataset.
@@ -698,7 +710,9 @@ def gen_region_masks(logger, pixel_on_e5, tracks, core_method='tb'):
         # used to get cloudnumbers.
         # Note, I also need to make sure that the tracked cloud is an MCS
         # use mcs_status to do so.
-        tmask = (ts.dstracks.base_time == pdtime).values & ts.dstracs.mcs_status.values
+        if use_mcs_status:
+            tmask = (ts.dstracks.base_time == pdtime).values & (ts.dstracs.mcs_status.values == 1)
+        tmask = (ts.dstracks.base_time == pdtime).values
         if tmask.sum() == 0:
             logger.info(f'No times matched in tracks DB for {pdtime}')
             cns = np.array([])
@@ -748,3 +762,34 @@ def gen_region_masks(logger, pixel_on_e5, tracks, core_method='tb'):
     ).all()
 
     return mcs_core_mask, mcs_shield_mask, cloud_core_mask, cloud_shield_mask, env_mask
+
+
+def fmt_ystr(years):
+    """Format contiguous years nicely.
+
+    e.g,
+    years = [2001, 2002] + list(range(2006, 2021))
+    return "2001-2002,2006-2020"
+
+    years = [2001]
+    return "2001"
+    """
+    yr_ranges = []
+    yr_last = years[0]
+    yr_range = [yr_last]
+    for yr in years[1:]:
+        if yr == yr_last + 1:
+            yr_range.append(yr)
+            yr_last = yr
+        else:
+            yr_ranges.append(yr_range)
+            yr_last = yr
+            yr_range = [yr_last]
+    yr_ranges.append(yr_range)
+    ystr_arr = []
+    for yr_range in yr_ranges:
+        if len(yr_range) == 1:
+            ystr_arr.append(str(yr_range[0]))
+        else:
+            ystr_arr.append(f'{yr_range[0]}-{yr_range[-1]}')
+    return ','.join(ystr_arr)

@@ -22,6 +22,7 @@ era5_histograms_plotting = Remake(config=dict(slurm=slurm_config, content_checks
 def get_labels(var):
     labels = {
         'cape': 'CAPE (J kg$^{-1}$)',
+        'cin': 'CIN (J kg$^{-1}$)',
         'tcwv': 'TCWV (mm)',
         'vertically_integrated_moisture_flux_div': 'VIMFD (kg m$^{-2}$ s$^{-1}$)',
         'shear_0': 'LLS (m s$^{-1}$)',
@@ -120,6 +121,7 @@ def plot_hist_probs_mode(ds, mode, ax=None, reg='all', var='cape'):
 def plot_hists_for_var(ds, var):
     xlim_ylim_title = {
         'cape': ((0, 2500), (0, 0.0014), 'CAPE {reg}'),
+        'cin': ((None, None), (None, None), 'CIN {reg}'),
         'tcwv': ((None, None), (0, 0.08), 'TCWV {reg}'),
         'shear_0': ((None, None), (None, None), 'LLS {reg}'),
         'shear_1': ((None, None), (None, None), 'L2MS {reg}'),
@@ -155,6 +157,7 @@ def plot_hists_for_var(ds, var):
 def plot_combined_hists_for_var(ax0, ax1, ds, var, show_legends=True):
     xlim_ylim_title = {
         'cape': ((0, 2500), (0, 0.0014), 'CAPE'),
+        'cin': ((None, None), (None, None), 'CIN'),
         'tcwv': ((0, 80), (0, 0.08), 'TCWV'),
         'shear_0': ((0, 40), (None, None), 'LLS'),
         'shear_1': ((0, 40), (None, None), 'L2MS'),
@@ -185,6 +188,7 @@ def plot_combined_hists_for_var(ax0, ax1, ds, var, show_legends=True):
 def plot_combined_hists_for_var_mode(ax0, ax1, ds, var, mode, show_legends=True):
     xlim_ylim_title = {
         'cape': ((0, 2500), (0, 0.0014), 'CAPE'),
+        'cin': ((None, None), (None, None), 'CIN'),
         'tcwv': ((0, 80), (0, 0.08), 'TCWV'),
         'shear_0': ((0, 40), (None, None), 'LLS'),
         'shear_1': ((0, 40), (None, None), 'L2MS'),
@@ -716,7 +720,7 @@ class GenDataForCombineConvectionConditionalERA5Hist(TaskRule):
 
     @staticmethod
     def rule_outputs(e5var, years):
-        ystr = f'{years[0]}-{years[-1]}'
+        ystr = cu.fmt_ystr(years)
         outputs = {
             'conv_data': (
                 PATHS['figdir']
@@ -820,7 +824,7 @@ class FigCombineConvectionConditionalERA5Hist(TaskRule):
 
     @staticmethod
     def rule_outputs(e5var, years):
-        ystr = f'{years[0]}-{years[-1]}'
+        ystr = cu.fmt_ystr(years)
         outputs = {
             f'fig_{mode}': (
                 PATHS['figdir']
@@ -1467,7 +1471,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
 
     @staticmethod
     def rule_outputs(years, e5vars):
-        ystr = f'{years[0]}-{years[-1]}'
+        ystr = cu.fmt_ystr(years)
         outputs = {
             'fig': (PATHS['figdir'] / 'mcs_env_cond_figs' /
                     f'mcs_local_env_precursor_mean_{e5vars}_{ystr}.png')
@@ -1483,7 +1487,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
             cu.YEARS,
         ],
         'e5vars': [
-            'cape-tcwv-shear_0-vertically_integrated_moisture_flux_div'
+            'cape-tcwv-shear_0-vertically_integrated_moisture_flux_div',
             'RHlow-RHmid-theta_e_mid',
         ],
     }
@@ -1521,7 +1525,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueSpread(TaskRule):
 
     @staticmethod
     def rule_outputs(years, e5vars):
-        ystr = f'{years[0]}-{years[-1]}'
+        ystr = cu.fmt_ystr(years)
         outputs = {
             'fig': (PATHS['figdir'] / 'mcs_env_cond_figs' /
                     f'mcs_local_env_precursor_mean_spread_{e5vars}_{ystr}.png')
@@ -1576,10 +1580,12 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueDCSpread(TaskRule):
 
     @staticmethod
     def rule_outputs(years, e5var, mode):
-        ystr = f'{years[0]}-{years[-1]}'
+        ystr = cu.fmt_ystr(years)
         outputs = {
             'fig': (PATHS['figdir'] / 'mcs_env_cond_figs' /
-                    f'mcs_local_env_precursor_mean_{e5var}_{ystr}_{mode}.png')
+                    f'mcs_local_env_precursor_mean_{e5var}_{ystr}_{mode}.png'),
+            'fig_spread': (PATHS['figdir'] / 'mcs_env_cond_figs' /
+                           f'mcs_local_env_precursor_mean_spread_{e5var}_{ystr}_{mode}.png')
         }
         return outputs
 
@@ -1619,41 +1625,46 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueDCSpread(TaskRule):
         ds['tracks'] = np.arange(0, ds.dims['tracks'], 1, dtype=int)
         assert len(ds.tracks) == len(tracks.dstracks.tracks)
 
-        fig, (ax, cax) = plt.subplots(2, 1, layout='constrained', gridspec_kw={'height_ratios':[1, 0.05]})
-        fig.set_size_inches((10, 8))
-        print(self.e5var)
-        cmap = mpl.colormaps['twilight_shifted']
-        for i in range(N):
-            if self.mode == 'diurnal_cycle':
-                hours = hour_groups[i]
-                time_filter = lst_track_start_times.hour.isin(hours)
-            elif self.mode == 'seasonal':
-                months = seasons[i]
-                time_filter = track_start_times.month.isin(months)
-            c = cmap(i / N)
-            print(i, time_filter.sum())
-            plot_precursor_mean_val(ds.isel(tracks=time_filter), self.e5var, cu.RADII[2:3], ax=ax, N=73, colours=[c], show_spread=True)
-            ax.set_xlim((-24, 48))
+        for show_spread in [False, True]:
+            fig, (ax, cax) = plt.subplots(2, 1, layout='constrained', gridspec_kw={'height_ratios':[1, 0.05]})
+            fig.set_size_inches((10, 8))
+            print(self.e5var)
+            cmap = mpl.colormaps['twilight_shifted']
+            for i in range(N):
+                if self.mode == 'diurnal_cycle':
+                    hours = hour_groups[i]
+                    time_filter = lst_track_start_times.hour.isin(hours)
+                elif self.mode == 'seasonal':
+                    months = seasons[i]
+                    time_filter = track_start_times.month.isin(months)
+                c = cmap(i / N)
+                print(i, time_filter.sum())
+                plot_precursor_mean_val(ds.isel(tracks=time_filter), self.e5var, cu.RADII[2:3],
+                                        ax=ax, N=73, colours=[c], show_spread=show_spread)
+                ax.set_xlim((-24, 48))
 
-        # axes[0, 0].legend()
-        # for ax in axes[-1]:
-        #     ax.set_xlabel('time from MCS initiation (hr)')
-        if self.mode == 'diurnal_cycle':
-            norm = mpl.colors.Normalize(vmin=0, vmax=24)
-            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-            sm.set_array([])
-            plt.colorbar(sm, cax=cax, orientation='horizontal',
-                         ticks=np.arange(24), boundaries=np.linspace(-0.5, 23.5, 9))
-        elif self.mode == 'seasonal':
-            norm = mpl.colors.Normalize(vmin=0, vmax=4)
-            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-            sm.set_array([])
-            labels = ['DJF', 'MAM', 'JJA', 'SON']
-            cb = plt.colorbar(sm, cax=cax, orientation='horizontal',
-                              ticks=np.arange(4), boundaries=np.linspace(-0.5, 3.5, 5))
-            cb.set_ticklabels(labels)
-        # plt.colorbar(sm, ticks=np.linspace(0,2,N),
-        #              boundaries=np.arange(-0.05,2.1,.1))
-        # plt.subplots_adjust(left=0.1, right=0.95, bottom=0.1, top=0.95, wspace=0.22, hspace=0.1)
-        plt.savefig(self.outputs[f'fig'])
+            # axes[0, 0].legend()
+            # for ax in axes[-1]:
+            #     ax.set_xlabel('time from MCS initiation (hr)')
+            if self.mode == 'diurnal_cycle':
+                norm = mpl.colors.Normalize(vmin=0, vmax=24)
+                sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+                sm.set_array([])
+                plt.colorbar(sm, cax=cax, orientation='horizontal',
+                             ticks=np.arange(24), boundaries=np.linspace(-0.5, 23.5, 9))
+            elif self.mode == 'seasonal':
+                norm = mpl.colors.Normalize(vmin=0, vmax=4)
+                sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+                sm.set_array([])
+                labels = ['DJF', 'MAM', 'JJA', 'SON']
+                cb = plt.colorbar(sm, cax=cax, orientation='horizontal',
+                                  ticks=np.arange(4), boundaries=np.linspace(-0.5, 3.5, 5))
+                cb.set_ticklabels(labels)
+            # plt.colorbar(sm, ticks=np.linspace(0,2,N),
+            #              boundaries=np.arange(-0.05,2.1,.1))
+            # plt.subplots_adjust(left=0.1, right=0.95, bottom=0.1, top=0.95, wspace=0.22, hspace=0.1)
+            if show_spread:
+                plt.savefig(self.outputs[f'fig_spread'])
+            else:
+                plt.savefig(self.outputs[f'fig'])
         ds.close()

@@ -207,6 +207,8 @@ class McsLocalEnv(TaskRule):
     }
 
     def rule_run(self):
+        use_mcs_status = False
+
         tracks = McsTracks.open(self.inputs['tracks'], None)
         dists = xr.load_dataarray(self.inputs['dists'])
 
@@ -257,21 +259,29 @@ class McsLocalEnv(TaskRule):
 
             if self.mode == 'init':
                 # If init (== MCS initiation), only get first value of lat/lon.
-                # This is a little harder: I need to make a mask with the first time that
-                # each track has mcs_status == 1 in it.
-                mcs_status_first = np.zeros_like(tracks.dstracks.mcs_status.values, dtype=bool)
-                for i in range(len(tracks.dstracks.tracks)):
-                    for j in range(400):
-                        if tracks.dstracks.mcs_status.values[i, j]:
-                            mcs_status_first[i, j] = True
-                            break
-                time_mask = (tracks.dstracks.base_time.values[:, 0] == nptime) & mcs_status_first
-                mcs_lats = tracks.dstracks.meanlat.values[:, 0][time_mask]
-                mcs_lons = tracks.dstracks.meanlon.values[:, 0][time_mask]
+                if use_mcs_status:
+                    # This is a little harder: I need to make a mask with the first time that
+                    # each track has mcs_status == 1 in it.
+                    mcs_status_first = np.zeros_like(tracks.dstracks.mcs_status.values, dtype=bool)
+                    for i in range(len(tracks.dstracks.tracks)):
+                        for j in range(400):
+                            if tracks.dstracks.mcs_status.values[i, j]:
+                                mcs_status_first[i, j] = True
+                                break
+                    time_mask = (tracks.dstracks.base_time.values == nptime) & mcs_status_first
+                    mcs_lats = tracks.dstracks.meanlat.values[time_mask]
+                    mcs_lons = tracks.dstracks.meanlon.values[time_mask]
+                else:
+                    time_mask = (tracks.dstracks.base_time.values[:, 0] == nptime)
+                    mcs_lats = tracks.dstracks.meanlat.values[:, 0][time_mask]
+                    mcs_lons = tracks.dstracks.meanlon.values[:, 0][time_mask]
             elif self.mode == 'lifetime':
                 # If lifetime, get all values of lat/lon along track.
-                # Make sure track is an MCS as well using mcs_status
-                time_mask = (tracks.dstracks.base_time.values == nptime) & (tracks.dstracks.mcs_status.values)
+                if use_mcs_status:
+                    # Make sure track is an MCS as well using mcs_status
+                    time_mask = (tracks.dstracks.base_time.values == nptime) & (tracks.dstracks.mcs_status.values == 1)
+                else:
+                    time_mask = tracks.dstracks.base_time.values == nptime
                 mcs_lats = tracks.dstracks.meanlat.values[time_mask]
                 mcs_lons = tracks.dstracks.meanlon.values[time_mask]
 
@@ -512,6 +522,7 @@ class CombineMonthlyMcsLocalEnv(TaskRule):
 
         ntimes = len(ds.time)
         dsout = ds.mean(dim='time').load()
+
         # This needs to be a sum, not a mean.
         dsout.dist_mask_sum.values = dist_mask_sum
         dsout = dsout.expand_dims({'time': 1})

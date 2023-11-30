@@ -158,7 +158,7 @@ def conditional_load_data(logger, year, month, inputs, precursor_time=0):
     tracks, pixel_on_e5 = conditional_load_mcs_data(logger, year, month, inputs)
 
     # NewEnvVars: add layer means.
-    e5paths = [inputs[f'era5_{t}_{v}'] for t in e5times for v in cu.ERA5VARS]
+    e5paths = [inputs[f'era5_{t}_{v}'] for t in e5times for v in cu.ERA5VARS + cu.DL_ERA5VARS]
     e5proc_shear_paths = [inputs[f'era5p_shear_{t}'] for t in e5times]
     e5proc_vimfd_paths = [inputs[f'era5p_vimfd_{t}'] for t in e5times]
     e5proc_layer_means_paths = [inputs[f'era5p_layer_means_{t}'] for t in e5times]
@@ -794,7 +794,6 @@ class CombineConditionalERA5HistGridpoint(TaskRule):
     def rule_run(self):
         datasets = [xr.open_dataset(p) for p in self.inputs.values()]
         assert len(datasets) == 12
-
         self.logger.info('Concat datasets')
         ds = xr.concat(datasets, pd.Index(range(12), name='time_index'))
         dsout = ds.sum(dim='time_index')

@@ -15,6 +15,7 @@ era5_histograms_plotting = Remake(config=dict(slurm=slurm_config, content_checks
 def get_labels(var):
     labels = {
         'cape': 'CAPE (J kg$^{-1}$)',
+        'cin': 'CIN (J kg$^{-1}$)',
         'tcwv': 'TCWV (mm)',
         'vertically_integrated_moisture_flux_div': 'VIMFD (kg m$^{-2}$ s$^{-1}$)',
         'shear_0': 'LLS (m s$^{-1}$)',
@@ -90,6 +91,7 @@ def plot_hist_probs(ds, ax=None, reg='all', var='cape', s=None):
 def plot_hists_for_var(ds, var):
     xlim_ylim_title = {
         'cape': ((0, 2500), (0, 0.0014), 'CAPE {reg}'),
+        'cin': ((None, None), (None, None), 'CIN {reg}'),
         'tcwv': ((None, None), (0, 0.08), 'TCWV {reg}'),
         'shear_0': ((None, None), (None, None), 'LLS {reg}'),
         'shear_1': ((None, None), (None, None), 'L2MS {reg}'),
@@ -145,6 +147,7 @@ class PlotCombineConditionalERA5Hist(TaskRule):
     def rule_run(self):
         with xr.open_mfdataset(self.inputs.values()) as ds:
             ds.load()
+
             for var in cu.EXTENDED_ERA5VARS:
                 print(var)
                 plot_hists_for_var(ds, var)
@@ -154,6 +157,7 @@ class PlotCombineConditionalERA5Hist(TaskRule):
 def plot_combined_hists_for_var(ax0, ax1, ds, var):
     xlim_ylim_title = {
         'cape': ((0, 2500), (0, 0.0014), 'CAPE'),
+        'cin': ((None, None), (None, None), 'CIN'),
         'tcwv': ((0, 80), (0, 0.08), 'TCWV'),
         'shear_0': ((0, 40), (None, None), 'LLS'),
         'shear_1': ((0, 40), (None, None), 'L2MS'),
@@ -207,7 +211,6 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
     }
 
     def rule_run(self):
-
         fig, axes = plt.subplots(2, 3, sharex='col')
         fig.set_size_inches((15, 8))
         e5vars = self.e5vars.split('-')
@@ -301,6 +304,7 @@ class PlotCombineConvectionConditionalERA5Hist(TaskRule):
     def rule_run(self):
         with xr.open_mfdataset(self.inputs.values()) as ds:
             ds.load()
+
             for var in cu.EXTENDED_ERA5VARS:
                 print(var)
                 plot_convection_hourly_hists(ds, var)
@@ -434,8 +438,10 @@ class PlotGridpointConditionalERA5Hist(TaskRule):
         lsmask = cu.load_lsmask(self.inputs['ERA5_land_sea_mask'])
         with xr.open_dataset(self.inputs[f'hist_{self.year}']) as ds:
             ds.load()
+
             for var in cu.EXTENDED_ERA5VARS:
                 print(var)
+
                 plot_gridpoint_hists(ds, var, lsmask)
                 plt.savefig(self.outputs[f'fig_conv_{var}'])
 
@@ -550,8 +556,8 @@ class PlotGridpointGlobal(TaskRule):
     def rule_run(self):
         with xr.open_dataset(self.inputs[f'hist_{self.year}']) as ds:
             ds.load()
-            ds_metrics = gen_rmse_integral_diff(ds, cu.EXTENDED_ERA5VARS)
 
+            ds_metrics = gen_rmse_integral_diff(ds, cu.EXTENDED_ERA5VARS)
             for var in cu.EXTENDED_ERA5VARS:
                 plot_global_rmse_bias(ds_metrics, var)
                 plt.savefig(self.outputs[f'fig_{var}'])
@@ -655,10 +661,12 @@ class PlotMcsLocalEnv(TaskRule):
     def rule_run(self):
         with xr.open_mfdataset(self.inputs.values()) as ds:
             ds.load()
+
             for var in cu.EXTENDED_ERA5VARS:
                 for radius in cu.RADII:
                     title = f'r{radius}km - {var}'
                     print(title)
+
                     plot_mcs_local_var(ds.sel(radius=radius), var, title, 'time_mean')
                     plt.savefig(self.outputs[f'fig_{radius}_time_mean_{var}'])
 
@@ -744,12 +752,14 @@ class PlotCombinedMcsLocalEnv(TaskRule):
 
         with xr.open_mfdataset(self.inputs.values()) as ds:
             ds.load()
+
             for radius in [500]:
                 fig, axes = plt.subplots(2, 2, subplot_kw={'projection': ccrs.PlateCarree()})
                 fig.set_size_inches((11, 4))
                 for ax, var in zip(axes.flatten(), e5vars):
                     title = f'r{radius}km - {var}'
                     print(title)
+
                     plot_monthly_mcs_local_var(ax, ds.sel(radius=radius), var)
 
                 plt.subplots_adjust(left=0.02, right=0.98, bottom=0.05, top=0.95, wspace=0.02, hspace=0.1)

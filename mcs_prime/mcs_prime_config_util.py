@@ -157,9 +157,9 @@ STATUS_DICT = {
 
 # Which years will be active for processing/analysis.
 # As in Feng et al. 2021, we leave out years 2003-5 due to poor availability of satellite IR.
-YEARS = [2001, 2002] + list(range(2006, 2021))
+# YEARS = [2001, 2002] + list(range(2006, 2021))
 # YEARS = list(range(2001, 2021))
-# YEARS = [2020]
+YEARS = [2020]
 MONTHS = range(1, 13)
 # MONTHS = [2]
 

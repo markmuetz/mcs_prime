@@ -1461,20 +1461,22 @@ def plot_precursor_mean_val(ds, var, radii, ax=None, N=73, colours=None, show_sp
 
 class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
     @staticmethod
-    def rule_inputs(years, e5vars):
+    def rule_inputs(years, e5vars, MCSs):
         inputs = {
             f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
             for year in years
             for month in cu.MONTHS
         }
+        for year in years:
+            inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
         return inputs
 
     @staticmethod
-    def rule_outputs(years, e5vars):
+    def rule_outputs(years, e5vars, MCSs):
         ystr = cu.fmt_ystr(years)
         outputs = {
             'fig': (PATHS['figdir'] / 'mcs_env_cond_figs' /
-                    f'mcs_local_env_precursor_mean_{e5vars}_{ystr}.png')
+                    f'mcs_local_env_precursor_mean_{e5vars}_{ystr}.{MCSs}.png')
         }
         return outputs
 
@@ -1490,16 +1492,31 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
             'cape-tcwv-shear_0-vertically_integrated_moisture_flux_div',
             'RHlow-RHmid-theta_e_mid',
         ],
+        'MCSs': ['all', 'natural', 'merge_split'],
     }
 
     def rule_run(self):
-
         fig, axes = plt.subplots(2, 2, sharex=True)
         fig.set_size_inches((10, 8))
         e5vars = self.e5vars.split('-')
 
-        ds = xr.open_mfdataset(list(self.inputs.values()), combine='nested', concat_dim='tracks')
+        ds = xr.open_mfdataset([p for k, p in self.inputs.items() if k.startswith('mcs_local_env_')],
+                               combine='nested', concat_dim='tracks')
         ds['tracks'] = np.arange(0, ds.dims['tracks'], 1, dtype=int)
+        tracks_paths = [p for k, p in self.inputs.items() if k.startswith('tracks_')]
+        tracks = McsTracks.mfopen(tracks_paths, None)
+
+        # If MCSs == natural or merge_split, filter tracks in ds to include only these types of MCSs.
+        if self.MCSs == 'natural':
+            # ds = ds.isel(tracks=np.isnan(tracks.dstracks.start_split_cloudnumber.values))
+            # Strange - this worked in a notebook *with McsTracks.open*, perhaps it does
+            # not work with xr.open_mfdataset under the hood?
+            # Anyway, check for -9999 will do the here thing - select natural MCSs.
+            ds = ds.isel(tracks=tracks.dstracks.start_split_cloudnumber.values == -9999)
+        elif self.MCSs == 'merge_split':
+            # ds = ds.isel(tracks=~np.isnan(tracks.dstracks.start_split_cloudnumber.values))
+            ds = ds.isel(tracks=tracks.dstracks.start_split_cloudnumber.values != -9999)
+
         for ax, var in zip(axes.flatten(), e5vars):
             print(var)
             plot_precursor_mean_val(ds, var, cu.RADII[1:], ax=ax, N=73)

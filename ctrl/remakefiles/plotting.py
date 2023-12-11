@@ -1,8 +1,10 @@
 import cartopy.crs as ccrs
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import xarray as xr
-from mcs_prime import PATHS, mcs_mask_plotter
+from mcs_prime import PATHS, mcs_mask_plotter, McsTracks
 from remake import Remake, TaskRule
 from remake.util import format_path as fmtp
 
@@ -408,6 +410,7 @@ def plot_gridpoint_lat_band_hist(ds, var, latstep=20):
 
 
 class PlotGridpointConditionalERA5Hist(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year):
         inputs = {
@@ -531,6 +534,7 @@ def plot_global_rmse_bias(ds, var):
 
 
 class PlotGridpointGlobal(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(year):
         inputs = {
@@ -766,30 +770,90 @@ class PlotCombinedMcsLocalEnv(TaskRule):
                 plt.savefig(self.outputs[f'fig_{radius}'])
 
 
-def plot_precursor_mean_val(ds, var, radii, ax=None, N=73):
+def plot_grouped_precursor_mean_val(grouped_data_dict, ax=None, show_spread=False):
+    """grouped_data_dict key is the label for the data, and
+    each entry is a dict containing:
+    * xr.DataArray (req),
+    * ylabel (req),
+    * xvals (req),
+    * plot_kwargs,
+    * spread_plot_kwargs,
+    """
+    if ax is None:
+        ax = plt.gca()
+
+    xvals = grouped_data_dict.pop('xvals')
+    for label, data_dict in grouped_data_dict.items():
+        data_array = data_dict['data_array']
+        ylabel = data_dict['ylabel']
+        plot_kwargs = data_dict.get('plot_kwargs', {})
+
+        plot_data = data_array.mean(dim='tracks')
+        p = ax.plot(xvals, plot_data, label=label, **plot_kwargs)
+
+        if show_spread:
+            d25, d75 = np.nanpercentile(data_array.values, [25, 75], axis=0)
+            spread_plot_kwargs = data_dict.get('spread_plot_kwargs', {})
+            if not spread_plot_kwargs:
+                spread_plot_kwargs = {**plot_kwargs, **{'linestyle': '--'}}
+                if 'color' not in spread_plot_kwargs:
+                    spread_plot_kwargs['color'] = p[0].get_color()
+            ax.plot(xvals, d25, **spread_plot_kwargs)
+            ax.plot(xvals, d75, **spread_plot_kwargs)
+        ax.set_ylabel(ylabel)
+    ax.set_xlabel('time from MCS initiation (hr)')
+    ax.legend()
+    ax.axvline(x=0)
+    ax.set_xlim(xvals[0], xvals[-1])
+
+def plot_precursor_mean_val_radii(ds, var, radii, ax=None, N=73):
     ds[f'mean_{var}'].load()
 
     # fig, (ax1, ax2) = plt.subplots(2, 1)
     if ax is None:
         ax = plt.gca()
+    grouped_data_dict = {'xvals': range(-24, -24 + N)}
     for r in radii:
-        print(f' plot {r}')
-        data = ds[f'mean_{var}'].sel(radius=r).isel(times=slice(0, N)).mean(dim='tracks')
+        data_array = ds[f'mean_{var}'].sel(radius=r).isel(times=slice(0, N))
         if var == 'vertically_integrated_moisture_flux_div':
-            ax.plot(range(-24, -24 + N), -data * 1e4, label=f'{r} km')
+            data_array = -data_array * 1e4
             ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
-            ax.set_ylabel(ylabel)
         else:
-            ax.plot(range(-24, -24 + N), data, label=f'{r} km')
-            ax.set_ylabel(get_labels(var))
+            ylabel = get_labels(var)
 
-    ax.axvline(x=0)
+        grouped_data_dict[f'{r} km'] = {
+            'data_array': data_array,
+            'ylabel': ylabel,
+        }
+    plot_grouped_precursor_mean_val(grouped_data_dict)
+    #     if show_spread:
+    #         data = ds[f'mean_{var}'].sel(radius=r).isel(times=slice(0, N)).values
+    #         d25, d75 = np.nanpercentile(data, [25, 75], axis=0)
+    #     if var == 'vertically_integrated_moisture_flux_div':
+    #         p = ax.plot(range(-24, -24 + N), -plot_data * 1e4, label=f'{r} km', **plot_kwargs)
+    #         if show_spread:
+    #             spread_plot_kwargs = {**plot_kwargs, **{'linestyle': '--'}}
+    #             if 'color' not in spread_plot_kwargs:
+    #                 spread_plot_kwargs['color'] = p[0].get_color()
+    #             print(spread_plot_kwargs)
+    #             ax.plot(range(-24, -24 + N), -d25 * 1e4, **spread_plot_kwargs)
+    #             ax.plot(range(-24, -24 + N), -d75 * 1e4, **spread_plot_kwargs)
 
-    # THIS IS SSSSLLLLOOOOOWWWW!!!!
-    # print(f' load hist')
-    # hist_data = ds[f'hist_{var}'].sel(radius=100).isel(times=slice(0, N)).load()
-    # print(f' plot hist')
-    # ax2.plot(range(-24, -24 + N), np.isnan(hist_data.values).sum(axis=(0, 1)))
+    #         ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+    #         ax.set_ylabel(ylabel)
+    #     else:
+    #         p = ax.plot(range(-24, -24 + N), plot_data, label=f'{r} km', **plot_kwargs)
+    #         if show_spread:
+    #             spread_plot_kwargs = {**plot_kwargs, **{'linestyle': '--'}}
+    #             if 'color' not in spread_plot_kwargs:
+    #                 spread_plot_kwargs['color'] = p[0].get_color()
+    #             print(spread_plot_kwargs)
+    #             ax.plot(range(-24, -24 + N), d25, **spread_plot_kwargs)
+    #             ax.plot(range(-24, -24 + N), d75, **spread_plot_kwargs)
+    #         ax.set_ylabel(get_labels(var))
+
+    # ax.axvline(x=0)
+
 
 
 class PlotMcsLocalEnvPrecursorMeanValue(TaskRule):
@@ -808,7 +872,7 @@ class PlotMcsLocalEnvPrecursorMeanValue(TaskRule):
     }
 
     depends_on = [
-        plot_precursor_mean_val,
+        plot_precursor_mean_val_radii,
     ]
 
     var_matrix = {
@@ -820,12 +884,151 @@ class PlotMcsLocalEnvPrecursorMeanValue(TaskRule):
         with xr.open_mfdataset(self.inputs.values()) as ds:
             for var in cu.EXTENDED_ERA5VARS:
                 print(var)
-                fig, ax = plt.subplots(1, 1)
-                fig.set_size_inches((20, 8))
-                plot_precursor_mean_val(ds, var, cu.RADII[1:], ax=ax, N=self.N)
+                fig, ax = plt.subplots(1, 1, layout='constrained')
+                fig.set_size_inches((15, 6))
+                plot_precursor_mean_val_radii(ds, var, cu.RADII[1:], ax=ax, N=self.N)
                 ax.legend()
                 ax.set_xlabel('time from MCS initiation (hr)')
                 plt.savefig(self.outputs[f'fig_{var}'])
+
+
+class PlotMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
+    @staticmethod
+    def rule_inputs(year, filter, decomp_mode, show_spread):
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+            for month in cu.MONTHS
+        }
+        inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
+        return inputs
+
+    rule_outputs = {
+        f'fig_{var}': (PATHS['figdir'] / 'mcs_local_envs' / f'filtered_decomp_mcs_local_env_precursor_mean_{var}_{{year}}_{{filter}}.decomp-{{decomp_mode}}.show_spread-{{show_spread}}.png')
+        for var in cu.EXTENDED_ERA5VARS
+    }
+
+    depends_on = [
+        plot_grouped_precursor_mean_val,
+    ]
+
+    var_matrix = {
+        'year': cu.YEARS,
+        'filter': ['land-sea', 'equator-tropics-extratropics'],
+        'decomp_mode': ['all', 'diurnal_cycle', 'seasonal'],
+        'show_spread': [False],
+    }
+
+    def rule_run(self):
+        ds_full = xr.open_mfdataset([p for k, p in self.inputs.items() if k.startswith('mcs_local_env_')],
+                               combine='nested', concat_dim='tracks')
+        ds_full['tracks'] = np.arange(0, ds_full.dims['tracks'], 1, dtype=int)
+
+        tracks_paths = [p for k, p in self.inputs.items() if k.startswith('tracks_')]
+        tracks = McsTracks.mfopen(tracks_paths, None)
+
+        track_start_times = pd.DatetimeIndex(tracks.dstracks.start_basetime.values)
+
+        if self.decomp_mode == 'all':
+            n_time_filters = 1
+            time_filters = [np.ones_like(tracks.dstracks.tracks, dtype=bool)]
+        elif self.decomp_mode == 'diurnal_cycle':
+            lst_offset = tracks.dstracks.meanlon.values[:, 0] / 360 * 24 * 3600 * 1e3  # in ms.
+            lst_track_start_times = track_start_times + lst_offset.astype('timedelta64[ms]')
+            hour_groups = [
+                [0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11],
+                [12, 13, 14], [15, 16, 17], [18, 19, 20], [21, 22, 23]
+            ]
+            n_time_filters = len(hour_groups)
+            time_filters = [lst_track_start_times.hour.isin(hours)
+                            for hours in hour_groups]
+        elif self.decomp_mode == 'seasonal':
+            seasons = [[12, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]]
+            n_time_filters = len(seasons)
+            time_filters = [track_start_times.month.isin(months)
+                            for months in seasons]
+
+        natural = tracks.dstracks.start_split_cloudnumber.values == -9999
+        filter_vals = {}
+        if self.filter == 'land-sea':
+            filter_groups = ['land', 'sea', 'transitional']
+            mean_landfrac = np.nanmean(tracks.dstracks.pf_landfrac.values, axis=1)
+            thresh_land = 0.9
+            thresh_sea = 0.1
+            for i in range(n_time_filters):
+                filter_vals[('land', i)] = ds_full.isel(
+                    tracks=(mean_landfrac > thresh_land) & natural & time_filters[i]
+                )
+                filter_vals[('sea', i)] = ds_full.isel(
+                    tracks=(mean_landfrac < thresh_sea) & natural & time_filters[i]
+                )
+                filter_vals[('transitional', i)] = ds_full.isel(
+                    tracks=(
+                        (mean_landfrac >= thresh_sea) &
+                        (mean_landfrac <= thresh_land) &
+                        natural &
+                        time_filters[i]
+                    )
+                )
+        elif self.filter == 'equator-tropics-extratropics':
+            filter_groups = ['NH extratropics', 'NH tropics', 'equatorial', 'SH tropics', 'SH extratropics']
+            mean_lat = np.nanmean(tracks.dstracks.meanlat.values, axis=1)
+            for i in range(n_time_filters):
+                filter_vals[('NH extratropics', i)] = ds_full.isel(
+                    tracks=(mean_lat > 30) & natural & time_filters[i]
+                )
+                filter_vals[('NH tropics', i)] = ds_full.isel(
+                    tracks=((mean_lat <= 30) & (mean_lat > 10) & natural) & time_filters[i]
+                )
+                filter_vals[('equatorial', i)] = ds_full.isel(
+                    tracks=((mean_lat <= 10) & (mean_lat >= -10) & natural) & time_filters[i]
+                )
+                filter_vals[('SH tropics', i)] = ds_full.isel(
+                    tracks=((mean_lat < -10) & (mean_lat >= -30) & natural) & time_filters[i]
+                )
+                filter_vals[('SH extratropics', i)] = ds_full.isel(
+                    tracks=(mean_lat < -30) & natural & time_filters[i]
+                )
+
+        cmap = mpl.colormaps['twilight_shifted']
+        N = 73
+        for var in cu.EXTENDED_ERA5VARS:
+            ds_full[f'mean_{var}'].sel(radius=200).isel(times=slice(0, N)).load()
+
+            if self.decomp_mode == 'all':
+                fig, ax = plt.subplots(1, 1, layout='constrained', sharey=True)
+            else:
+                fig, axes = plt.subplots(1, len(filter_groups), layout='constrained', sharey=True)
+            fig.set_size_inches((15, 6))
+
+            for i in range(len(filter_groups)):
+                grouped_data_dict = {'xvals': range(-24, -24 + N)}
+                if self.decomp_mode != 'all':
+                    ax = axes[i]
+
+                for j in range(n_time_filters):
+                    k = (filter_groups[i], j)
+                    print(var, k)
+                    ds = filter_vals[k]
+                    data_array = ds[f'mean_{var}'].sel(radius=200).isel(times=slice(0, N))
+                    if var == 'vertically_integrated_moisture_flux_div':
+                        data_array = -data_array * 1e4
+                        ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                    else:
+                        ylabel = get_labels(var)
+                    if self.decomp_mode != 'all':
+                        c = cmap(j / n_time_filters)
+                        plot_kwargs = {'color': c}
+                    else:
+                        plot_kwargs = {}
+
+                    grouped_data_dict[k] = {
+                        'data_array': data_array,
+                        'ylabel': ylabel,
+                        'plot_kwargs': plot_kwargs,
+                    }
+
+                plot_grouped_precursor_mean_val(grouped_data_dict, ax=ax, show_spread=self.show_spread)
+            plt.savefig(self.outputs[f'fig_{var}'])
 
 
 class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
@@ -842,7 +1045,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
     }
 
     depends_on = [
-        plot_precursor_mean_val,
+        plot_precursor_mean_val_radii,
     ]
 
     var_matrix = {
@@ -862,7 +1065,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
             ds['tracks'] = np.arange(0, ds.dims['tracks'], 1, dtype=int)
             for ax, var in zip(axes.flatten(), e5vars):
                 print(var)
-                plot_precursor_mean_val(ds, var, cu.RADII[1:], ax=ax, N=73)
+                plot_precursor_mean_val_radii(ds, var, cu.RADII[1:], ax=ax, N=73)
                 ax.set_xlim((-24, 48))
 
         axes[0, 0].legend()

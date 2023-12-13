@@ -18,7 +18,7 @@ import mcs_prime.mcs_prime_config_util as cu
 slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 64000}
 era5_histograms_plotting = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
-SUBFIG_SQ_SIZE = 11  # cm
+SUBFIG_SQ_SIZE = 9  # cm
 
 def cm_to_inch(*args):
     return [v / 2.54 for v in args]
@@ -1013,6 +1013,7 @@ class PlotMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                 fig, ax = plt.subplots(1, 1, layout='constrained', sharey=True)
             else:
                 fig, axes = plt.subplots(1, len(filter_groups), layout='constrained', sharey=True)
+
             fig.set_size_inches(cm_to_inch(len(filter_groups) * SUBFIG_SQ_SIZE, SUBFIG_SQ_SIZE))
 
             for i in range(len(filter_groups)):
@@ -1057,7 +1058,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
         return inputs
 
     rule_outputs = {
-        'fig': (PATHS['figdir'] / 'mcs_local_envs' / 'combined_filtered_decomp_mcs_local_env_precursor_mean_{year}.decomp-{decomp_mode}.radius-{radius}.png')
+        'fig': (PATHS['figdir'] / 'mcs_local_envs' / 'combined_filtered_decomp_mcs_local_env_precursor_mean_{year}.decomp-{decomp_mode}.radius-{radius}.pdf')
     }
 
     depends_on = [
@@ -1139,6 +1140,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
         sns.set_style('ticks')
         sns.set_context('paper')
         fig, axes = plt.subplots(4, 3, layout='constrained', sharex=True)
+
         fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * 4))
 
         colours = dict(zip(
@@ -1210,7 +1212,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
             ax.set_title(f'{c}) {ylabel}', loc='left')
             ax.axvline(x=0, color='k')
 
-        axes[0, -1].legend(loc='upper right')
+        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.5, 0))
         axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
         plt.savefig(self.outputs[f'fig'])
 
@@ -1226,7 +1228,7 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
         return inputs
 
     rule_outputs = {
-        f'fig_{var}': (PATHS['figdir'] / 'mcs_local_envs' / f'indiv_filtered_decomp_mcs_local_env_precursor_mean_{var}_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.show_spread-{{show_spread}}.png')
+        f'fig_{var}': (PATHS['figdir'] / 'mcs_local_envs' / f'indiv_filtered_decomp_mcs_local_env_precursor_mean_{var}_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.show_spread-{{show_spread}}.pdf')
         for var in cu.EXTENDED_ERA5VARS
     }
 
@@ -1308,11 +1310,12 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
         sns.set_style('ticks')
         sns.set_context('paper')
         # cmap = mpl.colormaps['viridis']
-        # cmap = mpl.colormaps['twilight_shifted']
-        cmap = sns.color_palette('hls', as_cmap=True)
+        # cmap = sns.color_palette('hls', as_cmap=True)
+        cmap = mpl.colormaps['twilight_shifted']
         for var in e5vars:
             print(var)
             fig, axes = plt.subplots(2, 3, layout='constrained', sharex=True, sharey=True)
+
             fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * 2))
 
             data_array = ds_full[f'mean_{var}'].sel(radius=self.radius).isel(times=slice(0, N)).load()
@@ -1360,6 +1363,7 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                 # ax.set_title(f'{c}) {label} {ylabel} ({percentage:.1f}%)', loc='left')
                 ax.set_title(f'{c}) {label} ({percentage:.1f}%)', loc='left')
                 ax.axvline(x=0, color='k')
+                ax.set_facecolor('silver')
 
                 if var == 'vertically_integrated_moisture_flux_div' and self.radius in {100, 200}:
                     ax.set_ylim((-0.5, 5))

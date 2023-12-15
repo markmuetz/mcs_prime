@@ -1,10 +1,12 @@
 import cartopy.crs as ccrs
 import cartopy.geodesic
+from cartopy.mpl.ticker import LongitudeFormatter, LatitudeFormatter
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
 import matplotlib.animation
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import shapely.geometry
 import shapely.ops
 import xarray as xr
@@ -172,34 +174,42 @@ class McsMaskPlotter:
         lon = pixel_on_e5.longitude.values
         dlat = lat[1] - lat[0]
         dlon = lon[1] - lon[0]
+
+        seaborn_colors = sns.color_palette('dark')
+        blue = seaborn_colors[0]
+        green = seaborn_colors[2]
+        red = seaborn_colors[3]
+        purple = seaborn_colors[4]
+
         if show_precip:
             ax.contour(
                 pixel_on_e5.longitude,
                 pixel_on_e5.latitude,
                 pixel_on_e5.precipitation,
                 levels=[3, 10],
-                colors=['purple', 'purple'],
+                colors=[purple, purple],
                 zorder=5,
             )
         if show_field:
             im = ax.imshow(
-                var_data, extent=(lonmin - dlon / 2, lonmax + dlon / 2, latmin + dlat / 2, latmax - dlat / 2)
+                var_data, extent=(lonmin - dlon / 2, lonmax + dlon / 2, latmin + dlat / 2, latmax - dlat / 2),
+                cmap=sns.color_palette('viridis', as_cmap=True),
             )
 
         if show_mcs_masks:
             for geoms, kwargs1, kwargs2 in zip(
                 all_geoms,
                 [
-                    dict(facecolor='red', alpha=0.3),
-                    dict(facecolor='red', alpha=0),
-                    dict(facecolor='blue', alpha=0.3),
-                    dict(facecolor='blue', alpha=0),
+                    dict(facecolor=red, alpha=0.3),
+                    dict(facecolor=red, alpha=0),
+                    dict(facecolor=blue, alpha=0.3),
+                    dict(facecolor=blue, alpha=0),
                 ],
                 [
-                    dict(edgecolor='red', linestyle='-', hatch='//'),
-                    dict(edgecolor='red', linestyle='--', hatch=r'\\'),
-                    dict(edgecolor='blue', linestyle='-', hatch='//'),
-                    dict(edgecolor='blue', linestyle='--', hatch=r'\\'),
+                    dict(edgecolor=red, linestyle='-', hatch='//'),
+                    dict(edgecolor=red, linestyle='--', hatch=r'\\'),
+                    dict(edgecolor=blue, linestyle='-', hatch='//'),
+                    dict(edgecolor=blue, linestyle='--', hatch=r'\\'),
                 ],
             ):
                 # geoms = [g for g in geoms if not filter_geom(g)]
@@ -220,9 +230,16 @@ class McsMaskPlotter:
 
         ax.coastlines()
         if grid_x and grid_y:
-            gl = ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False, xlocs=grid_x, ylocs=grid_y)
-            gl.bottom_labels = False
-            gl.right_labels = False
+            # gl = ax.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False, xlocs=grid_x, ylocs=grid_y)
+            # gl.bottom_labels = False
+            # gl.right_labels = False
+            ax.set_xticks(grid_x)
+            ax.set_yticks(grid_y)
+            lon_formatter = LongitudeFormatter()
+            ax.xaxis.set_major_formatter(lon_formatter)
+            lat_formatter = LatitudeFormatter()
+            ax.yaxis.set_major_formatter(lat_formatter)
+            ax.xaxis.tick_top()
 
         if show_colourbar:
             if var == 'tcwv':
@@ -241,13 +258,13 @@ class McsMaskPlotter:
             lons = self.plotter_data.tracks.dstracks.meanlon.values[mask]
             track_ids = self.plotter_data.tracks.dstracks.tracks.values[mask.any(axis=1)]
 
-            ax.scatter(lons, lats, marker='o', color='g', zorder=10)
+            ax.scatter(lons, lats, marker='o', color=green, zorder=10)
 
             geoms = []
             for lat, lon, track_id in zip(lats, lons, track_ids):
                 if not (lat > latmin and lat < latmax and lon > lonmin and lon < lonmax):
                     continue
-                ax.text(lon + 0.1, lat + 0.1, f'{track_id}', color='g')
+                # ax.text(lon + 0.1, lat + 0.1, f'{track_id}', color='g')
                 for radius in [100, 200]:
                     circle_points = cartopy.geodesic.Geodesic().circle(
                         lon=lon, lat=lat, radius=radius * 1e3, n_samples=100, endpoint=False
@@ -259,6 +276,6 @@ class McsMaskPlotter:
                 geoms,
                 crs=cartopy.crs.PlateCarree(),
                 facecolor="none",
-                edgecolor="g",
+                edgecolor=green,
                 linewidth=2,
             )

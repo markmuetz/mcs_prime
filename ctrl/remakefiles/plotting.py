@@ -1432,6 +1432,146 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
         plt.savefig(self.outputs[f'fig'])
 
 
+class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
+    @staticmethod
+    def rule_inputs(year, decomp_mode, radius):
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+            for month in cu.MONTHS
+        }
+        inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
+        return inputs
+
+    rule_outputs = {
+        f'fig_{i}': (PATHS['figdir'] / 'mcs_local_envs' / f'corr_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.{i}.pdf')
+        for i in range(7)
+    }
+
+    depends_on = [
+        plot_grouped_precursor_mean_val,
+    ]
+
+    var_matrix = {
+        'year': YEARS,
+        'decomp_mode': ['all'],
+        'radius': [100, 200, 500, 1000],
+    }
+
+    def rule_run(self):
+        # e5vars = cu.EXTENDED_ERA5VARS[:12]
+        # default order.
+        e5vars = [
+            'cape',
+            'cin',
+            'tcwv',
+            'shear_0',
+            'shear_1', # Least interesting/quite close to LLS (shear_0)
+            'shear_2',
+            'shear_3',
+            'RHlow',
+            'RHmid',
+            'vertically_integrated_moisture_flux_div',
+            'delta_3h_cape',
+            'delta_3h_tcwv',
+            'theta_e_mid',
+        ]
+        print('Open datasets')
+        ds_full = xr.open_mfdataset([p for k, p in self.inputs.items() if k.startswith('mcs_local_env_')],
+                               combine='nested', concat_dim='tracks')
+        ds_full['tracks'] = np.arange(0, ds_full.dims['tracks'], 1, dtype=int)
+
+        tracks_paths = [p for k, p in self.inputs.items() if k.startswith('tracks_')]
+        tracks = McsTracks.mfopen(tracks_paths, None)
+
+        track_start_times = pd.DatetimeIndex(tracks.dstracks.start_basetime.values)
+
+        print('Build filters')
+        print('  natural')
+        natural = tracks.dstracks.start_split_cloudnumber.values == -9999
+        filter_vals = {'natural': {'natural': natural}}
+
+        print('  equator-tropics-extratropics')
+        mean_lat = np.nanmean(tracks.dstracks.meanlat.values, axis=1)
+        # Not having 5 values for lat bands makes the figure much clearer.
+        # filter_vals['equator-tropics-extratropics'] = {
+        #     'NH extratropics': mean_lat > 30,
+        #     'NH tropics': (mean_lat <= 30) & (mean_lat > 10),
+        #     'equatorial': (mean_lat <= 10) & (mean_lat >= -10),
+        #     'SH tropics': (mean_lat < -10) & (mean_lat >= -30),
+        #     'SH extratropics': mean_lat < -30,
+        # }
+        filter_vals['equator-tropics-extratropics'] = {
+            'equatorial': (mean_lat <= 10) & (mean_lat >= -10),
+            'tropics': ((mean_lat <= 30) & (mean_lat > 10)) | ((mean_lat < -10) & (mean_lat >= -30)),
+            'extratropics': (mean_lat > 30) | (mean_lat < -30),
+        }
+
+        print('  land-sea')
+        mean_landfrac = np.nanmean(tracks.dstracks.pf_landfrac.values, axis=1)
+        thresh_land = 0.5
+        thresh_sea = 0.5
+        filter_vals['land-sea'] = {
+            'sea': mean_landfrac <= thresh_sea,
+            'land': mean_landfrac > thresh_land,
+        }
+
+        filter_key_combinations = list(product(
+            filter_vals['natural'].keys(),
+            filter_vals['equator-tropics-extratropics'].keys(),
+            filter_vals['land-sea'].keys(),
+        ))
+
+        N = 73
+        sns.set_theme(palette='deep')
+        sns.set_style('ticks')
+        sns.set_context('paper')
+
+        data_dict = {}
+        # print(filter_key_combinations)
+        filter_key_combinations.append('all')
+        for i, filter_keys in enumerate(filter_key_combinations):
+            print(i, filter_keys)
+            fig, ax = plt.subplots(1, 1, layout='constrained')
+            fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 2 + 3, SUBFIG_SQ_SIZE * 2))
+
+            data_dict[filter_keys] = {}
+
+            if filter_keys != 'all':
+                full_filter = None
+                for filter_name, key in zip(filter_vals.keys(), filter_keys):
+                    if full_filter is None:
+                        full_filter = filter_vals[filter_name][key]
+                    else:
+                        full_filter = full_filter & filter_vals[filter_name][key]
+            else:
+                full_filter = natural
+            percentage = full_filter.sum() / natural.sum() * 100
+
+            for var in e5vars:
+                print(var)
+                ds_full[f'mean_{var}'].sel(radius=200).isel(times=0).load()
+                data_array = ds_full[f'mean_{var}'].sel(radius=self.radius).isel(times=0, tracks=full_filter)
+
+                if var == 'vertically_integrated_moisture_flux_div':
+                    data_array = -data_array * 1e4
+                    label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                else:
+                    label = get_labels(var)
+                varname = label[:label.find('(')].strip()
+
+                data_dict[filter_keys][varname] = data_array.values
+
+            df = pd.DataFrame(data_dict[filter_keys])
+            corr = df.corr()
+            sns.heatmap(corr, ax=ax, cmap='coolwarm', annot=True, fmt='.2f', vmin=-1, vmax=1)
+            ax.set_aspect(1)
+            if filter_keys != 'all':
+                ax.set_title(' '.join(filter_keys[1:]) + f' ({percentage:.1f}%)')
+            else:
+                ax.set_title(f'all ({natural.sum()} tracks)')
+            plt.savefig(self.outputs[f'fig_{i}'])
+
+
 class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
     @staticmethod
     def rule_inputs(year, decomp_mode, radius, show_spread):

@@ -4,6 +4,7 @@ import string
 import cartopy.crs as ccrs
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import pandas as pd
@@ -62,11 +63,18 @@ def plot_hist(ds, ax=None, reg='all', var='cape', s=None, log=True):
             ax.plot(ds[f'{var}_hist_mids'].values[s], h_density[s], fmt, label=title)
 
     # ax.set_title(f'{var.upper()} distributions')
-    _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_MCS_core'].values, axis=0), 'r-', 'MCS core')
-    _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_MCS_shield'].values, axis=0), 'r--', 'MCS shield')
-    _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_cloud_core'].values, axis=0), 'b-', 'non-MCS core')
-    _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_cloud_shield'].values, axis=0), 'b--', 'non-MCS shield')
-    _plot_hist(ds, ax, np.nansum(ds[f'{reg}_{var}_env'].values, axis=0), 'k-', 'env')
+    d1 = np.nansum(ds[f'{reg}_{var}_MCS_core'].values, axis=0)
+    d2 = np.nansum(ds[f'{reg}_{var}_MCS_shield'].values, axis=0)
+    d3 = np.nansum(ds[f'{reg}_{var}_cloud_core'].values, axis=0)
+    d4 = np.nansum(ds[f'{reg}_{var}_cloud_shield'].values, axis=0)
+    d5 = np.nansum(ds[f'{reg}_{var}_env'].values, axis=0)
+    dt = d1 + d2 + d3 + d4 + d5
+    _plot_hist(ds, ax, d1, 'r-', 'MCS core')
+    _plot_hist(ds, ax, d2, 'r--', 'MCS shield')
+    _plot_hist(ds, ax, d3, 'b-', 'non-MCS core')
+    _plot_hist(ds, ax, d4, 'b--', 'non-MCS shield')
+    _plot_hist(ds, ax, d5, 'k-', 'env')
+    _plot_hist(ds, ax, dt, 'k:', 'total')
     # ax.legend()
     if log:
         ax.set_yscale('log')
@@ -200,21 +208,26 @@ def plot_combined_hists_for_var(ax0, ax1, ds, var):
 
 class PlotCombineVarConditionalERA5Hist(TaskRule):
     @staticmethod
-    def rule_inputs(year, e5vars):
+    def rule_inputs(years, e5vars):
         inputs = {
             f'hist_{year}_{month}': fmtp(cu.FMT_PATH_COND_HIST_HOURLY, year=year, month=month, core_method='tb')
+            for year in years
             for month in cu.MONTHS
         }
         return inputs
 
-    rule_outputs = {
-        'fig': (PATHS['figdir'] / 'conditional_era5_histograms' / 'combined_yearly_hist_{e5vars}_{year}_tb.pdf')
-    }
+    @staticmethod
+    def rule_outputs(years, e5vars):
+        ystr = cu.fmt_ystr(years)
+        outputs = {
+            'fig': (PATHS['figdir'] / 'conditional_era5_histograms' / f'combined_yearly_hist_{e5vars}_{ystr}_tb.pdf')
+        }
+        return outputs
 
     depends_on = [get_labels, plot_hist, plot_hist_probs, plot_combined_hists_for_var]
 
     var_matrix = {
-        'year': YEARS,
+        'years': [cu.YEARS, [2020]],
         'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
     }
 
@@ -333,9 +346,6 @@ def plot_convection_hourly_hists(ds, var, axes=None):
         #     plt.xlim((-0.002 * 1e4, 0.002 * 1e4))
         # elif var.startswith('shear'):
         #     plt.xlabel('m s$^{-1}$')
-    ax.set_ylabel('p(MCS conv|conv)')
-    ax2.set_ylabel('pdf')
-
     ax.set_ylim((0, 1))
     ax2.set_ylim((0, None))
 
@@ -376,25 +386,30 @@ class PlotConvectionConditionalERA5Hist(TaskRule):
 
 class PlotCombineConvectionConditionalERA5Hist(TaskRule):
     @staticmethod
-    def rule_inputs(year, core_method, e5vars):
+    def rule_inputs(years, core_method, e5vars):
         inputs = {
             f'hist_{year}_{month}': fmtp(cu.FMT_PATH_COND_HIST_HOURLY, year=year, month=month, core_method=core_method)
+            for year in years
             for month in cu.MONTHS
         }
         return inputs
 
-    rule_outputs = {
-        'fig': (
-            PATHS['figdir']
-            / 'conditional_era5_histograms'
-            / 'combine_convection_yearly_hist_{e5vars}_{year}_{core_method}.pdf'
-        )
-    }
+    @staticmethod
+    def rule_outputs(years, core_method, e5vars):
+        ystr = cu.fmt_ystr(years)
+        outputs = {
+            'fig': (
+                PATHS['figdir']
+                / 'conditional_era5_histograms'
+                / f'combine_convection_yearly_hist_{e5vars}_{ystr}_{core_method}.pdf'
+            )
+        }
+        return outputs
 
     depends_on = [plot_convection_hourly_hists]
 
     var_matrix = {
-        'year': YEARS,
+        'years': [cu.YEARS, [2020]],
         'core_method': ['tb', 'precip'],
         'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
     }
@@ -453,6 +468,9 @@ class PlotCombineConvectionConditionalERA5Hist(TaskRule):
 
         for ax in axes[::2].flatten():
             ax.set_xticklabels([])
+        axes[0, 0].set_ylabel('p(MCS conv|conv)')
+        axes[1, 0].set_ylabel('pdf')
+
         fig.align_ylabels(axes)
         plt.savefig(self.outputs['fig'])
 
@@ -868,12 +886,7 @@ def plot_monthly_mcs_local_var(ax, ds, var):
         extent=extent,
     )
 
-    if var == 'vertically_integrated_moisture_flux_div':
-        label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
-    else:
-        label = get_labels(var)
     plt.colorbar(im, ax=ax, extend='both')
-    ax.set_title(label)
     ax.coastlines()
     ax.set_ylim((-60, 60))
 
@@ -923,36 +936,49 @@ class PlotCombinedMcsLocalEnv(TaskRule):
 
                     plot_monthly_mcs_local_var(ax, ds.sel(radius=radius), var)
 
+                    if var == 'vertically_integrated_moisture_flux_div':
+                        label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                    else:
+                        label = get_labels(var)
+                    ax.set_title(label)
+
                 plt.subplots_adjust(left=0.02, right=0.98, bottom=0.05, top=0.95, wspace=0.02, hspace=0.1)
                 plt.savefig(self.outputs[f'fig_{radius}'])
 
 
 class PlotAllCombinedMcsLocalEnv(TaskRule):
     @staticmethod
-    def rule_inputs(year):
+    def rule_inputs(years):
         inputs = {
             f'mcs_local_env_{year}_{month}': fmtp(
                 cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV, year=year, month=month, mode='init'
             )
+            for year in years
             for month in cu.MONTHS
         }
         return inputs
 
-    rule_outputs = {
-        f'fig_{radius}': (
-            PATHS['figdir'] / 'mcs_local_envs' / f'all_combined_mcs_local_env_r{radius}km_init_{{year}}.pdf'
-        )
-        # for radius in [100, 200, 500, 1000]
-        for radius in [500]
-    }
+    @staticmethod
+    def rule_outputs(years):
+        ystr = cu.fmt_ystr(years)
+        outputs = {
+            f'fig_{radius}': (
+                PATHS['figdir'] / 'mcs_local_envs' / f'all_combined_mcs_local_env_r{radius}km_init_{ystr}.pdf'
+            )
+            for radius in [500]
+        }
+        return outputs
 
     depends_on = [
         plot_monthly_mcs_local_var,
     ]
 
     var_matrix = {
-        'year': [2020],
+        'years': [cu.YEARS],
     }
+
+    # Possibly running out of mem?
+    config = {'slurm': {'mem': 512000, 'partition': 'high-mem', 'max_runtime': '24:00:00', 'account': None}}
 
     def rule_run(self):
         e5vars = [
@@ -986,12 +1012,22 @@ class PlotAllCombinedMcsLocalEnv(TaskRule):
                 # Hence use /3 in height.
                 # 1.1 is a fudge factor for colorbar, title...
                 fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * 4 / 3 * 1.1))
-                for ax, var in zip(axes.flatten(), e5vars):
+                for i, (ax, var) in enumerate(zip(axes.flatten(), e5vars)):
                     title = f'-  {var}'
                     print(title)
                     plot_monthly_mcs_local_var(ax, ds.sel(radius=radius), var)
+                    if var == 'vertically_integrated_moisture_flux_div':
+                        label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                    else:
+                        label = get_labels(var)
 
-                # plt.subplots_adjust(left=0.02, right=0.98, bottom=0.05, top=0.95, wspace=0.02, hspace=0.1)
+                    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False,
+                                      linewidth=1, color='gray')
+                    gl.xlocator = mticker.FixedLocator([])
+                    gl.ylocator = mticker.FixedLocator([-30, -10, 10, 30])
+                    c = string.ascii_lowercase[i]
+                    ax.set_title(f'{c}) {label}', loc='left')
+
                 plt.savefig(self.outputs[f'fig_{radius}'])
 
 
@@ -1435,25 +1471,35 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
 class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
     @staticmethod
-    def rule_inputs(year):
+    def rule_inputs(years):
+        # WARNING: It's important to get the ordering right here.
+        # I need to loop over years first, then months, so that order of index matches tracks dataset.
         inputs = {
             f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+            for year in years
             for month in cu.MONTHS
         }
-        inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
+        for year in years:
+            inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
         return inputs
 
-    rule_outputs = {
-        'fig': (PATHS['figdir'] / 'mcs_local_envs' / 'combined_filtered_radius_mcs_local_env_precursor_mean_{year}.pdf')
-    }
+    @staticmethod
+    def rule_outputs(years):
+        ystr = cu.fmt_ystr(years)
+        return {
+            'fig': (PATHS['figdir'] / 'mcs_local_envs' / f'combined_filtered_radius_mcs_local_env_precursor_mean_{ystr}.pdf')
+        }
 
     depends_on = [
         plot_grouped_precursor_mean_val,
     ]
 
     var_matrix = {
-        'year': YEARS,
+        # 'year': YEARS,
+        'years': [cu.YEARS],
     }
+    # Running out of time on 4h queue.
+    config = {'slurm': {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '24:00:00', 'account': None}}
 
     def rule_run(self):
         # e5vars = cu.EXTENDED_ERA5VARS[:12]
@@ -1729,25 +1775,33 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
 class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
     @staticmethod
-    def rule_inputs(year, decomp_mode, radius, show_spread):
+    def rule_inputs(years, decomp_mode, radius, show_spread):
+        # WARNING: It's important to get the ordering right here.
+        # I need to loop over years first, then months, so that order of index matches tracks dataset.
         inputs = {
             f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+            for year in years
             for month in cu.MONTHS
         }
-        inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
+        for year in years:
+            inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
         return inputs
 
-    rule_outputs = {
-        f'fig_{var}': (PATHS['figdir'] / 'mcs_local_envs' / f'indiv_filtered_decomp_mcs_local_env_precursor_mean_{var}_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.show_spread-{{show_spread}}.pdf')
-        for var in cu.EXTENDED_ERA5VARS
-    }
+    @staticmethod
+    def rule_outputs(years, decomp_mode, radius, show_spread):
+        ystr = cu.fmt_ystr(years)
+        return {
+            f'fig_{var}': (PATHS['figdir'] / 'mcs_local_envs' / 'indiv' / var / f'indiv_filtered_decomp_mcs_local_env_precursor_mean_{var}_{ystr}.decomp-{decomp_mode}.radius-{radius}.show_spread-{show_spread}.pdf')
+            for var in cu.EXTENDED_ERA5VARS
+        }
 
     depends_on = [
         plot_grouped_precursor_mean_val,
     ]
 
     var_matrix = {
-        'year': YEARS,
+        # 'year': YEARS,
+        'years': [cu.YEARS] + [[y] for y in cu.YEARS],
         'decomp_mode': ['all', 'diurnal_cycle', 'seasonal'],
         'radius': [100, 200, 500, 1000],
         'show_spread': [False, True],

@@ -789,7 +789,7 @@ class CombineConditionalERA5HistGridpoint(TaskRule):
 
     var_matrix = {'year': cu.YEARS}
     # Takes a lot of mem to combine these datasets!
-    config = {'slurm': {'mem': 800000, 'partition': 'high-mem'}}
+    config = {'slurm': {'mem': 1000000, 'partition': 'high-mem'}}
 
     def rule_run(self):
         datasets = [xr.open_dataset(p) for p in self.inputs.values()]

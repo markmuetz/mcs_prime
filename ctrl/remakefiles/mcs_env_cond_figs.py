@@ -21,8 +21,8 @@ plotting = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
 SUBFIG_SQ_SIZE = 9  # cm
 
-# YEARS = cu.YEARS
-YEARS = [2020]
+YEARS = cu.YEARS
+# YEARS = [2020]
 
 
 def cm_to_inch(*args):
@@ -312,7 +312,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
             ax.axvline(x=0, color='k')
 
         # Set some figure-wide text.
-        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.5, -0.2))
+        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.5, -0.2), framealpha=1)
         axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
 
         plt.savefig(self.outputs[f'fig'])

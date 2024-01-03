@@ -207,6 +207,7 @@ def plot_combined_hists_for_var(ax0, ax1, ds, var):
 
 
 class PlotCombineVarConditionalERA5Hist(TaskRule):
+    """Used for fig07.pdf, supp_fig04.pdf"""
     @staticmethod
     def rule_inputs(years, e5vars):
         inputs = {
@@ -385,6 +386,7 @@ class PlotConvectionConditionalERA5Hist(TaskRule):
 
 
 class PlotCombineConvectionConditionalERA5Hist(TaskRule):
+    """Used for fig08.pdf, supp_fig05.pdf"""
     @staticmethod
     def rule_inputs(years, core_method, e5vars):
         inputs = {
@@ -947,6 +949,7 @@ class PlotCombinedMcsLocalEnv(TaskRule):
 
 
 class PlotAllCombinedMcsLocalEnv(TaskRule):
+    """Used for fig06.pdf"""
     @staticmethod
     def rule_inputs(years):
         inputs = {
@@ -1470,6 +1473,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
 
 class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
+    """Used for fig03.pdf"""
     @staticmethod
     def rule_inputs(years):
         # WARNING: It's important to get the ordering right here.
@@ -1634,6 +1638,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
 
 
 class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
+    """Used for supp_fig06.pdf"""
     @staticmethod
     def rule_inputs(year, decomp_mode, radius):
         inputs = {
@@ -1774,6 +1779,7 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
 
 class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
+    """Used for fig04.pdf, fig05.pdf, supp_fig01.pdf, supp_fig02.pdf, supp_fig03.pdf"""
     @staticmethod
     def rule_inputs(years, decomp_mode, radius, show_spread):
         # WARNING: It's important to get the ordering right here.
@@ -1997,3 +2003,134 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValue(TaskRule):
             ax.set_xlabel('time from MCS initiation (hr)')
         plt.subplots_adjust(left=0.1, right=0.95, bottom=0.1, top=0.95, wspace=0.22, hspace=0.1)
         plt.savefig(self.outputs[f'fig_{self.e5vars}'])
+
+
+def plot_gridpoint_3x_lat_band_hist(ax, ds, var):
+    xlim_ylim_title = {
+        'cape': ((0, 2500), (0, 0.0014), 'CAPE'),
+        'cin': ((0, 500), (0, 0.14), 'CIN'),
+        'tcwv': ((0, 80), (0, 0.08), 'TCWV'),
+        'shear_0': ((0, 30), (0, 0.15), 'LLS'),
+        'shear_1': ((0, 30), (0, 0.15), 'L2MS'),
+        'shear_2': ((0, 30), (0, 0.15), 'M2HS'),
+        'shear_3': ((0, 30), (0, 0.15), 'DS'),
+        'RHlow': ((0, 1), (0, 8), 'RHlow'),
+        'RHmid': ((0, 1), (0, 4), 'RHmid'),
+        'theta_e_mid': ((300, 360), (0, None), r'$\theta_e$'),
+        'vertically_integrated_moisture_flux_div': ((-12, 12), (0, None), 'VIMFD'),
+        'delta_3h_cape': ((-300, 300), (0, None), r'\Delta 3h CAPE'),
+        'delta_3h_tcwv': ((-20, 20), (0, None), r'\Delta 3h TCWV'),
+    }
+    xlim, ylim, title = xlim_ylim_title[var]
+    ax.set_xlim(xlim)
+
+    if var == 'vertically_integrated_moisture_flux_div':
+        x = ds[f'{var}_hist_mids'].values * -1e4
+    else:
+        x = ds[f'{var}_hist_mids'].values
+    lat = ds.latitude.values
+    lat_idxs = {
+        'equatorial': (lat <= 10) & (lat >= -10),
+        'tropics': ((lat <= 30) & (lat > 10)) | ((lat < -10) & (lat >= -30)),
+        'extratropics': (lat > 30) | (lat < -30),
+    }
+    for key, lat_idx in lat_idxs.items():
+        d1 = ds[f'{var}_MCS_core'].isel(latitude=lat_idx).values.sum(axis=(0, 1))
+        d2 = ds[f'{var}_cloud_core'].isel(latitude=lat_idx).values.sum(axis=(0, 1))
+        with np.errstate(invalid='ignore', divide='ignore'):
+            d = d1 / (d1 + d2)
+        ax.plot(x, d, label=f'{key}')
+
+
+class PlotCombineConvectionConditionalLatBandERA5Hist(TaskRule):
+    """Used for fig09.pdf"""
+    @staticmethod
+    def rule_inputs(years, e5vars):
+        inputs = {
+            f'hist_{year}': fmtp(cu.FMT_PATH_COMBINED_COND_HIST_GRIDPOINT, year=year)
+            for year in years
+        }
+        # inputs['ERA5_land_sea_mask'] = cu.PATH_ERA5_LAND_SEA_MASK
+        return inputs
+
+    @staticmethod
+    def rule_outputs(years, e5vars):
+        ystr = cu.fmt_ystr(years)
+        outputs = {
+            'fig': (
+                PATHS['figdir']
+                / 'conditional_era5_histograms'
+                / f'combine_convection_yearly_hist_lat_band_{e5vars}_{ystr}.pdf'
+            )
+        }
+        return outputs
+
+    depends_on = [plot_gridpoint_3x_lat_band_hist]
+
+    var_matrix = {
+        'years': [[2020], cu.YEARS],
+        # 'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
+        'e5vars': ['tcwv-RHmid-vertically_integrated_moisture_flux_div'],
+    }
+
+    def rule_run(self):
+        if self.e5vars == 'all':
+            e5vars = [
+                'cape',
+                'cin',
+                'tcwv',
+                'shear_0',
+                # 'shear_1', # Least interesting/quite close to LLS (shear_0)
+                'shear_2',
+                'shear_3',
+                'RHlow',
+                'RHmid',
+                'vertically_integrated_moisture_flux_div',
+                'delta_3h_cape',
+                'delta_3h_tcwv',
+                'theta_e_mid',
+            ]
+        else:
+            e5vars = self.e5vars.split('-')
+
+        nrows = (((len(e5vars) - 1) // 3) + 1)  # trust me.
+        sns.set_theme(palette='deep')
+        sns.set_style('ticks')
+        sns.set_context('paper')
+
+        fig, axes = plt.subplots(nrows, 3, layout='constrained', sharey=True)
+        fudge_factor = 0.8 if self.e5vars == 'all' else 1.
+        fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * nrows / 2 * fudge_factor))
+
+        with xr.open_mfdataset(self.inputs.values()) as ds:
+            ds.load()
+
+            for i, var in enumerate(e5vars):
+                row_idx = (i // 3)
+                col_idx = (i % 3)
+                print(var, row_idx, col_idx)
+                if nrows == 1:
+                    ax = axes[col_idx]
+                else:
+                    ax = axes[row_idx, col_idx]
+                plot_gridpoint_3x_lat_band_hist(ax, ds, var)
+                ax.set_ylim((0, 1))
+
+                if var == 'vertically_integrated_moisture_flux_div':
+                    label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                else:
+                    label = get_labels(var)
+                c = string.ascii_lowercase[i]
+                ax.set_title(f'{c}) {label}', loc='left')
+
+        if self.e5vars == 'all':
+            axes[0, 0].legend(loc='lower left', bbox_to_anchor=(0.8, -0.2), framealpha=1)
+        else:
+            axes[0].set_ylabel('p(MCS conv|conv)')
+            axes[-1].legend(loc='lower left', bbox_to_anchor=(0.8, 0.02), framealpha=1)
+
+        # axes[1, 0].set_ylabel('pdf')
+
+        fig.align_ylabels(axes)
+        plt.savefig(self.outputs['fig'])
+

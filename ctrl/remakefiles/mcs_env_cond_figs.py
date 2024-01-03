@@ -59,6 +59,7 @@ settings_dict = dict([(s['name'], s) for s in settings_list])
 
 
 class PlotMcsMasks(TaskRule):
+    """Used for fig01.pdf"""
     @staticmethod
     def rule_inputs(settings_name):
         settings = settings_dict[settings_name]
@@ -139,6 +140,7 @@ def plot_grouped_precursor_mean_val(ax, grouped_data_dict, show_spread=False):
 
 
 class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
+    """Used for fig02.pdf"""
     @staticmethod
     def rule_inputs(years, radius):
         inputs = {}

@@ -2068,10 +2068,17 @@ class PlotCombineConvectionConditionalLatBandERA5Hist(TaskRule):
     depends_on = [plot_gridpoint_3x_lat_band_hist]
 
     var_matrix = {
-        'years': [[2020], cu.YEARS],
+        # 'years': [[2020], cu.YEARS],
+        'years': [[2020], [2018, 2019, 2020]],
+        'years': [[2020], [2018, 2019, 2020], cu.YEARS],
         # 'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
         'e5vars': ['tcwv-RHmid-vertically_integrated_moisture_flux_div'],
     }
+
+    # Running out of time on 4h queue.
+    # Running out of mem as well!
+    # config = {'slurm': {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '24:00:00', 'account': None}}
+    config = {'slurm': {'mem': 512000, 'partition': 'high-mem', 'max_runtime': '24:00:00', 'account': None}}
 
     def rule_run(self):
         if self.e5vars == 'all':
@@ -2102,8 +2109,11 @@ class PlotCombineConvectionConditionalLatBandERA5Hist(TaskRule):
         fudge_factor = 0.8 if self.e5vars == 'all' else 1.
         fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * nrows / 2 * fudge_factor))
 
-        with xr.open_mfdataset(self.inputs.values()) as ds:
-            ds.load()
+        with xr.open_mfdataset(self.inputs.values(),
+                               combine='nested', concat_dim='time') as ds:
+            for var in e5vars:
+                ds[f'{var}_MCS_core'].load()
+                ds[f'{var}_cloud_core'].load()
 
             for i, var in enumerate(e5vars):
                 row_idx = (i // 3)
@@ -2113,7 +2123,7 @@ class PlotCombineConvectionConditionalLatBandERA5Hist(TaskRule):
                     ax = axes[col_idx]
                 else:
                     ax = axes[row_idx, col_idx]
-                plot_gridpoint_3x_lat_band_hist(ax, ds, var)
+                plot_gridpoint_3x_lat_band_hist(ax, ds.sum(dim='time'), var)
                 ax.set_ylim((0, 1))
 
                 if var == 'vertically_integrated_moisture_flux_div':

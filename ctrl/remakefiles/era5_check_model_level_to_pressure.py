@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -65,3 +67,29 @@ class CheckModelLevelToPressure(TaskRule):
         df = pd.DataFrame(data, columns=['time', 'reg', 'level', 'p1', 'p10', 'p25', 'p50', 'p75', 'p90', 'p99'])
         df.to_hdf(self.outputs['output'], 'check_model_level_to_pressure')
 
+
+class ModelLevelToPressureInfo(TaskRule):
+    @staticmethod
+    def rule_inputs():
+        dates = [pd.Timestamp(2020, m, 1) for m in range(1, 13)]
+        inputs = {f'{d}': CheckModelLevelToPressure.rule_outputs(d)['output']
+                  for d in dates}
+        return inputs
+
+    rule_outputs = {'pressure_info': (cu.PATHS['figdir'] /
+                                      'check_model_level_to_pressure' /
+                                      f'check_model_level_to_pressure_2020.csv')}
+
+    def rule_run(self):
+        df = pd.concat([pd.read_hdf(p) for p in self.inputs.values()])
+        data = defaultdict(list)
+        for level in [136, 111, 100, 90]:
+            data['level'].append(level)
+            for region in ['all', 'land', 'sea']:
+                data[region].append(df[(df.reg == region) & (df.level == level)].p50.mean())
+        print(data)
+        data['refereced as'] = ['surface', 800, 600, 400]
+        dfout = pd.DataFrame(data)
+        print(dfout)
+        print(self.outputs['pressure_info'])
+        dfout.to_csv(self.outputs['pressure_info'])

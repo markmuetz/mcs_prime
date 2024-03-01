@@ -1,3 +1,4 @@
+"""Perform a check that my conversion from model levels to pressure levels is sensible"""
 from collections import defaultdict
 
 import numpy as np
@@ -5,7 +6,6 @@ import pandas as pd
 import xarray as xr
 
 from remake import Remake, TaskRule
-from remake.util import tmp_to_actual_path
 
 import mcs_prime.mcs_prime_config_util as cu
 from mcs_prime.era5_calc import ERA5Calc

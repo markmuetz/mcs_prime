@@ -277,6 +277,8 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
                     label = get_labels(var)
                 c = string.ascii_lowercase[i]
                 ax0.set_title(f'{c}) {label}', loc='left')
+                ax0.grid(ls='--', lw=0.5)
+                ax1.grid(ls='--', lw=0.5)
 
         if self.e5vars == 'all':
             axes[0, 0].legend(loc='lower left', bbox_to_anchor=(0.5, 0.3), framealpha=1)
@@ -462,6 +464,8 @@ class PlotCombineConvectionConditionalERA5Hist(TaskRule):
                     label = get_labels(var)
                 c = string.ascii_lowercase[i]
                 ax0.set_title(f'{c}) {label}', loc='left')
+                ax0.grid(ls='--', lw=0.5)
+                ax1.grid(ls='--', lw=0.5)
 
         if self.e5vars == 'all':
             axes[0, 0].legend(loc='lower left', bbox_to_anchor=(0.8, -0.2), framealpha=1)
@@ -1052,8 +1056,11 @@ def plot_grouped_precursor_mean_val(grouped_data_dict, ax=None, show_spread=Fals
         ylabel = data_dict['ylabel']
         plot_kwargs = data_dict.get('plot_kwargs', {})
 
-        plot_data = data_array.mean(dim='tracks')
+        # plot_data = data_array.mean(dim='tracks')
+        # Needed for CIN @ 1000km!
+        plot_data = np.nanmean(data_array.values, axis=0)
         p = ax.plot(xvals, plot_data, label=label, **plot_kwargs)
+        print(label, plot_data[24])
 
         if show_spread:
             d25, d75 = np.nanpercentile(data_array.values, [25, 75], axis=0)
@@ -1506,6 +1513,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
     config = {'slurm': {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '24:00:00', 'account': None}}
 
     def rule_run(self):
+
         # e5vars = cu.EXTENDED_ERA5VARS[:12]
         # default order.
         e5vars = [
@@ -1631,6 +1639,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
             # positioning ylabel due to different widths of numbers for e.g. 1.5 vs 335
             ax.set_title(f'{c}) {ylabel}', loc='left')
             ax.axvline(x=0, color='k')
+            ax.grid(ls='--', lw=0.5)
 
         axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.8, 0))
         axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
@@ -1934,6 +1943,7 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                 ax.set_title(f'{c}) {label} ({percentage:.1f}%)', loc='left')
                 ax.axvline(x=0, color='k')
                 ax.set_facecolor('silver')
+                ax.grid(ls='--', lw=0.5)
 
                 if var == 'vertically_integrated_moisture_flux_div' and self.radius in {100, 200}:
                     ax.set_ylim((-0.5, 5))
@@ -2132,6 +2142,7 @@ class PlotCombineConvectionConditionalLatBandERA5Hist(TaskRule):
                     label = get_labels(var)
                 c = string.ascii_lowercase[i]
                 ax.set_title(f'{c}) {label}', loc='left')
+                ax.grid(ls='--', lw=0.5)
 
         if self.e5vars == 'all':
             axes[0, 0].legend(loc='lower left', bbox_to_anchor=(0.8, -0.2), framealpha=1)

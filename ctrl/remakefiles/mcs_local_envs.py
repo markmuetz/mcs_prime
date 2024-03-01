@@ -346,7 +346,7 @@ class LifecycleMcsLocalEnv(TaskRule):
         'year': cu.YEARS,
         'month': cu.MONTHS,
     }
-    config = {'slurm': {'mem': 256000, 'partition': 'high-mem'}}
+    config = {'slurm': {'mem': 256000, 'partition': 'high-mem', 'max_runtime': '24:00:00'}}
 
     def rule_run(self):
         # I have currently disabled generating the histograms because this takes up A LOT of space.
@@ -438,8 +438,8 @@ class LifecycleMcsLocalEnv(TaskRule):
                     for var in cu.EXTENDED_ERA5VARS:
                         # Note, to index the times dim, I need to add 24 to i (starts at -24).
                         data = e5ds.sel(time=time)[var].values[dist_mask]
-                        dsout[f'mean_{var}'].values[track_idx, j, i + 24] = data.mean()
-                        dsout[f'percentile_{var}'].values[track_idx, j, :, i + 24] = np.percentile(data, percentiles)
+                        dsout[f'mean_{var}'].values[track_idx, j, i + 24] = np.nanmean(data)
+                        dsout[f'percentile_{var}'].values[track_idx, j, :, i + 24] = np.nanpercentile(data, percentiles)
                         if save_hists:
                             bins = dsout[f'{var}_bins'].values
                             # Go ahead and compute histogram.

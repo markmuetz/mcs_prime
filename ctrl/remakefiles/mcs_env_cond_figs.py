@@ -312,9 +312,10 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
             # positioning ylabel due to different widths of numbers for e.g. 1.5 vs 335
             ax.set_title(f'{c}) {ylabel}', loc='left')
             ax.axvline(x=0, color='k')
+            ax.grid(ls='--', lw=0.5)
 
         # Set some figure-wide text.
-        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.5, -0.2), framealpha=1)
+        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.4, 1.01), framealpha=1)
         axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
 
         plt.savefig(self.outputs[f'fig'])

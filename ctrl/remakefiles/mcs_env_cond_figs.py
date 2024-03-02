@@ -11,12 +11,14 @@ My biggest regret with this code is not splitting the processing from the plotti
 I.e. they are done together in one task. This means it can take a long time (hours) to produce one fig.
 Not ideal! Unfortunately it is not straightforward to separate the processing/plotting code.
 """
+# TODO: Check supp_figs supp_fig02 does not match doc.
 from itertools import product
 import string
 
 import cartopy.crs as ccrs
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -430,7 +432,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
         track_start_times = pd.DatetimeIndex(tracks.dstracks.start_basetime.values)
 
         print('Build filters')
-        filter_vals, filter_key_combinations, natural = build_track_filters(tracks)
+        filter_vals, filter_key_combinations, natural = build_track_filters(tracks, combine_eq_tropics=True)
 
         N = 73
         nrows = ((len(STANDARD_E5VARS) - 1) // 3) + 1  # trust me.
@@ -888,6 +890,9 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
         'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
     }
 
+    # Running out of time on 4h queue.
+    config = {'slurm': {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '24:00:00', 'account': None}}
+
     def rule_run(self):
         if self.e5vars == 'all':
             e5vars = STANDARD_E5VARS
@@ -1011,6 +1016,9 @@ class PlotCombineConvectionConditionalERA5Hist(TaskRule):
         'core_method': ['tb', 'precip'],
         'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
     }
+
+    # Running out of time on 4h queue.
+    config = {'slurm': {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '24:00:00', 'account': None}}
 
     def rule_run(self):
         if self.e5vars == 'all':

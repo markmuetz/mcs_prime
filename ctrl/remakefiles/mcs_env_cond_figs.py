@@ -11,7 +11,6 @@ My biggest regret with this code is not splitting the processing from the plotti
 I.e. they are done together in one task. This means it can take a long time (hours) to produce one fig.
 Not ideal! Unfortunately it is not straightforward to separate the processing/plotting code.
 """
-# TODO: Check supp_figs supp_fig02 does not match doc.
 from itertools import product
 import string
 
@@ -253,7 +252,7 @@ def gen_full_filter(filter_vals, filter_keys):
 
 
 class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
-    """Used for fig02.pdf
+    """Used for fig02.pdf, supp_fig02.pdf
 
     Plot the composite local envs for MCSs over their lifetimes.
     i.e. from 24 h before MCS init (technically DCI), to 72 h after.
@@ -540,7 +539,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
 
 
 class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
-    """Used for fig04.pdf, fig05.pdf, supp_fig01.pdf, supp_fig02.pdf, supp_fig03.pdf
+    """Used for fig04.pdf, fig05.pdf, supp_fig03.pdf, supp_fig04.pdf, supp_fig05.pdf
 
     As fig02.pdf, fig03.pdf, but just for one (each) variable at a time.
     Each combination of lat band/land-sea gets its own ax.
@@ -907,7 +906,7 @@ def plot_combined_hists_for_var(ax0, ax1, ds, var):
 
 
 class PlotCombineVarConditionalERA5Hist(TaskRule):
-    """Used for fig07.pdf, supp_fig04.pdf
+    """Used for fig07.pdf, supp_fig06.pdf
 
     Plot the conitional PDFs and probabilites for each of the 5 MCS regions.
     """
@@ -1030,7 +1029,7 @@ def plot_convection_hourly_hists(ds, var, axes=None):
 
 
 class PlotCombineConvectionConditionalERA5Hist(TaskRule):
-    """Used for fig08.pdf, supp_fig05.pdf
+    """Used for fig08.pdf, supp_fig07.pdf, supp_fig09.pdf
 
     As fig07.pdf, but this time just the probability of MCS-type convection given ANY convection."""
 
@@ -1241,7 +1240,7 @@ class PlotCombineConvectionConditionalLatBandERA5Hist(TaskRule):
 
 
 class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
-    """Used for supp_fig06.pdf"""
+    """Used for supp_fig01.pdf"""
 
     @staticmethod
     def rule_inputs(year, decomp_mode, radius):
@@ -1330,3 +1329,241 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
             else:
                 ax.set_title(f'all ({natural.sum()} tracks)')
             plt.savefig(self.outputs[f'fig_{i}'])
+
+
+class GenDataForConvectionConditionalERA5HistSeasonalDC(TaskRule):
+    """Data for supp_fig08.pdf
+
+    Use the diurnal cycle data to produce MCS-type convection conditional on any convection data.
+    Can also be used to generate seasonal data as well.
+    Split DC into 8 groups, 0-2, 3-5...
+    Seasonal into 4 seasons.
+    """
+    @staticmethod
+    def rule_inputs(e5vars, years):
+        # Note, the DC data can be used to generate seasonal data as well.
+        # This is because it is the same as the hourly data when viewed over the course of
+        # one complete day (or season).
+        inputs = {
+            f'hist_{year}_{month}': fmtp(cu.FMT_PATH_COND_HIST_DC, year=year, month=month, core_method='tb')
+            for year in cu.YEARS
+            for month in cu.MONTHS
+        }
+        return inputs
+
+    @staticmethod
+    def rule_outputs(e5vars, years):
+        ystr = cu.fmt_ystr(years)
+        outputs = {
+            'season_dc_data': (PATHS['figdir'] / 'fig_data' /
+                               f'convection_combined_hist_{e5vars}_{ystr}.season_dc.nc')
+        }
+        return outputs
+
+    var_matrix = {
+        'e5vars': [
+            'tcwv-RHmid-vertically_integrated_moisture_flux_div',
+        ],
+        'years': [[2020], cu.YEARS],
+    }
+
+    def rule_run(self):
+
+        e5vars = self.e5vars.split('-')
+        mcs_regs = ['MCS_core', 'cloud_core']
+        # Need to get list of vars so I know which ones to drop.
+        # Is there a nicer way of doing this?
+        ds_one = xr.open_mfdataset(list(self.inputs.values())[0])
+        keep_vars = set([
+            f'all_{var}_{mcs_reg}'
+            for var in e5vars
+            for mcs_reg in mcs_regs
+        ])
+        drop_vars = [
+            k
+            for k in ds_one.data_vars.keys()
+            if k not in keep_vars
+        ]
+        with xr.open_mfdataset(list(self.inputs.values()), drop_variables=drop_vars) as ds:
+            ds.load()
+        print('Loaded data')
+
+        coords = {k: ds[k] for k in ds.mean(dim='time').coords.keys()}
+        print(coords)
+        coords['season'] = np.arange(4)
+        coords['diurnal_cycle'] = np.arange(8)
+
+        data_vars = {}
+        for var in e5vars:
+            blank_hist_season_data = np.zeros((4, 100))
+            blank_hist_dc_data = np.zeros((8, 100))
+            season_prob_key = f'all_{var}_MCS_conv_given_conv_prob_season_data'
+            dc_prob_key = f'all_{var}_MCS_conv_given_conv_prob_diurnal_cycle_data'
+            data_vars[season_prob_key] = (
+                ('season', f'{var}_hist_mid'), blank_hist_season_data.copy()
+            )
+            data_vars[dc_prob_key] = (
+                ('diurnal_cycle', f'{var}_hist_mid'), blank_hist_dc_data.copy()
+            )
+
+        dsout = xr.Dataset(
+            coords=coords,
+            data_vars=data_vars,
+        )
+
+        # Generate time filters that can be used to subset the data
+        # in ds by either season or diurnal cycle.
+        times = pd.DatetimeIndex(ds.time)
+        time_filters = {}
+        month_lookup = {
+            'djf': [12, 1, 2],
+            'mam': [3, 4, 5],
+            'jja': [6, 7, 8],
+            'son': [9, 10, 11],
+        }
+        hour_groups = [
+            [0, 1, 2],
+            [3, 4, 5],
+            [6, 7, 8],
+            [9, 10, 11],
+            [12, 13, 14],
+            [15, 16, 17],
+            [18, 19, 20],
+            [21, 22, 23],
+        ]
+        for i, season in enumerate(['djf', 'mam', 'jja', 'son']):
+            time_filters[('season', i)] = times.month.isin(month_lookup[season])
+        for i, hg in enumerate(hour_groups):
+            time_filters[('diurnal_cycle', i)] = times.hour.isin(hg)
+
+        for var in e5vars:
+            for key, time_filter in time_filters.items():
+                filter_type, filter_idx = key
+                print(var, filter_type, filter_idx)
+                # Apply filter.
+                ds_filtered = ds.isel(time=time_filter)
+
+                d1 = np.nansum(ds_filtered[f'all_{var}_MCS_core'].values, axis=0)
+                d2 = np.nansum(ds_filtered[f'all_{var}_cloud_core'].values, axis=0)
+                with np.errstate(invalid='ignore', divide='ignore'):
+                    d = d1 / (d1 + d2)
+                prob_key = f'all_{var}_MCS_conv_given_conv_prob_{filter_type}_data'
+                dsout[prob_key][filter_idx] = d
+
+        cu.to_netcdf_tmp_then_copy(dsout, self.outputs['season_dc_data'])
+
+
+class FigPlotCombineVarConditionalERA5HistSeasonalDC(TaskRule):
+    """Used for supp_fig08.pdf
+
+    Heavy lifting is done by GenDataForConvectionConditionalERA5HistSeasonalDC"""
+    rule_inputs = GenDataForConvectionConditionalERA5HistSeasonalDC.rule_outputs
+    @staticmethod
+    def rule_outputs(e5vars, years):
+        ystr = cu.fmt_ystr(years)
+        outputs = {
+            'fig_season_dc': (PATHS['figdir'] / 'mcs_env_cond_figs' /
+                              f'conv_conditional_combined_hist_{e5vars}_{ystr}_season_dc.pdf'),
+        }
+        return outputs
+
+    var_matrix = {
+        'e5vars': [
+            'tcwv-RHmid-vertically_integrated_moisture_flux_div',
+        ],
+        'years': [[2020], cu.YEARS],
+    }
+
+
+    def rule_run(self):
+        e5vars = self.e5vars.split('-')
+
+        xlims = {
+            'cape': (0, 2500),
+            'cin': (0, 500),
+            'tcwv': (0, 80),
+            'shear_0': (0, 30),
+            'shear_1': (0, 30),
+            'shear_2': (0, 30),
+            'shear_3': (0, 30),
+            'RHlow': (0, 1),
+            'RHmid': (0, 1),
+            'theta_e_mid': (300, 360),
+            'vertically_integrated_moisture_flux_div': (-12, 12),
+            'delta_3h_cape': (-300, 300),
+            'delta_3h_tcwv': (-20, 20),
+        }
+
+        with xr.open_mfdataset(self.inputs['season_dc_data']) as ds:
+            ds.load()
+
+        fig, axes = plt.subplots(2, 3, sharex='col', sharey=True, layout='constrained')
+        fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, 0.9 * SUBFIG_SQ_SIZE * 2))
+
+        sns.set_theme(palette='deep')
+        sns.set_style('ticks')
+        sns.set_context('paper')
+        cmap = mpl.colormaps['twilight_shifted']
+
+        for axrow, mode in zip(axes, ['season', 'diurnal_cycle']):
+            indices = np.arange(len(ds[mode]))
+
+            for i in indices:
+                c = cmap(i / len(indices))
+                for ax, var in zip(axrow, e5vars):
+                    print(var, mode, i)
+                    kwargs = {mode: i}
+                    ds_filtered = ds.isel(**kwargs)
+
+                    prob_key = f'all_{var}_MCS_conv_given_conv_prob_{mode}_data'
+                    if var == 'vertically_integrated_moisture_flux_div':
+                        x = ds[f'{var}_hist_mids'].values * -1e4
+                    else:
+                        x = ds[f'{var}_hist_mids'].values
+                    p = ax.plot(x, ds_filtered[prob_key].values, color=c)
+
+                    xlim = xlims[var]
+                    ax.set_xlim(xlim)
+                    ax.set_ylim((0, 1))
+
+                    ax.set_facecolor('silver')
+                    ax.grid(ls='--', lw=0.5)
+
+            if mode == 'diurnal_cycle':
+                norm = mpl.colors.Normalize(vmin=0, vmax=24)
+                sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+                plt.colorbar(
+                    sm,
+                    ax=axrow,
+                    orientation='vertical',
+                    ticks=np.arange(24),
+                    boundaries=np.linspace(-0.5, 23.5, 9),
+                )
+            elif mode == 'season':
+                norm = mpl.colors.Normalize(vmin=0, vmax=4)
+                sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+                sm.set_array([])
+                labels = ['DJF', 'MAM', 'JJA', 'SON']
+                cb = plt.colorbar(
+                    sm, ax=axrow, orientation='vertical', ticks=np.arange(4), boundaries=np.linspace(-0.5, 3.5, 5)
+                )
+                cb.set_ticklabels(labels)
+                cb.ax.tick_params(rotation=90)
+
+        axcount = 0
+        for axrow, mode in zip(axes, ['season', 'diurnal_cycle']):
+            for ax, var in zip(axrow, e5vars):
+                figchar = string.ascii_lowercase[axcount]
+                axcount += 1
+                if var == 'vertically_integrated_moisture_flux_div':
+                    label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                else:
+                    label = get_labels(var)
+                if mode == 'season':
+                    label = 'seasonal ' + label
+                elif mode == 'diurnal_cycle':
+                    label = 'diurnal cycle ' + label
+                ax.set_title(f'{figchar}) {label}', loc='left')
+
+        plt.savefig(self.outputs[f'fig_season_dc'])
+

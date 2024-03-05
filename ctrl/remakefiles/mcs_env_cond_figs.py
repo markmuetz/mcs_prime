@@ -182,7 +182,7 @@ def plot_grouped_precursor_mean_val(ax, grouped_data_dict, show_spread=False):
     ax.set_xlim(xvals[0], xvals[-1])
 
 
-def build_track_filters(tracks, combine_eq_tropics=False, thresh_land=0.5, thresh_sea=0.5):
+def build_track_filters(tracks, nat_vs_all=False, combine_eq_tropics=False, thresh_land=0.5, thresh_sea=0.5):
     print('  natural')
     # Only include "natural" MCSs - those that do not form by splitting from an existing one.
     # Note, the number of natural MCSs is taken as the baseline for working out
@@ -190,7 +190,10 @@ def build_track_filters(tracks, combine_eq_tropics=False, thresh_land=0.5, thres
     # NOTE there is a difference between tracks that were loaded with xr.open_mfdataset (as used here)
     # and xr.open_dataset (in e.g., notebooks). Former sets this to -9999, latter to np.nan.
     natural = tracks.dstracks.start_split_cloudnumber.values == -9999
-    filter_vals = {'natural': {'natural': natural}}
+    if nat_vs_all:
+        filter_vals = {'natural': {'all': np.ones_like(natural, dtype=bool), 'natural': natural}}
+    else:
+        filter_vals = {'natural': {'natural': natural}}
 
     mean_lat = np.nanmean(tracks.dstracks.meanlat.values, axis=1)
     if combine_eq_tropics:
@@ -259,7 +262,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
     Use standard vars."""
 
     @staticmethod
-    def rule_inputs(years, radius):
+    def rule_inputs(years, radius, mode):
         inputs = {}
         for year in years:
             inputs.update(
@@ -272,23 +275,33 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
         return inputs
 
     @staticmethod
-    def rule_outputs(years, radius):
+    def rule_outputs(years, radius, mode):
         ystr = cu.fmt_ystr(years)
-        return {
-            'fig': (
-                PATHS['figdir']
-                / 'mcs_env_cond_figs'
-                / f'combined_filtered_mcs_local_env_precursor_mean_{ystr}.radius-{radius}.pdf'
-            )
-        }
+        if mode == 'natural':
+            return {
+                'fig': (
+                    PATHS['figdir']
+                    / 'mcs_env_cond_figs'
+                    / f'combined_filtered_mcs_local_env_precursor_mean_{ystr}.radius-{radius}.pdf'
+                )
+            }
+        else:
+            return {
+                'fig': (
+                    PATHS['figdir']
+                    / 'mcs_env_cond_figs'
+                    / f'combined_filtered_mcs_local_env_precursor_mean_{ystr}.radius-{radius}.{mode}.pdf'
+                )
+            }
 
     depends_on = [
         plot_grouped_precursor_mean_val,
     ]
 
     var_matrix = {
-        'years': [YEARS],
+        'years': [[2020], YEARS],
         'radius': [100, 200, 500, 1000],
+        'mode': ['natural', 'nat_vs_all'],
     }
 
     def rule_run(self):
@@ -306,7 +319,8 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
         # Build filters. Each is determined by the MCS tracks dataset and applied
         # to the data in ds_full.
         print('Build filters')
-        filter_vals, filter_key_combinations, natural = build_track_filters(tracks)
+        nat_vs_all = self.mode == 'nat_vs_all'
+        filter_vals, filter_key_combinations, natural = build_track_filters(tracks, nat_vs_all=nat_vs_all)
 
         n_hours = 73
         # Set up the figure (using seaborn theming).
@@ -316,6 +330,8 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
         fig, axes = plt.subplots(4, 3, layout='constrained', sharex=True)
         fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, 0.6 * SUBFIG_SQ_SIZE * 4))
 
+        # N.B. works even when only one key, as just gets 1 from 2nd list.
+        linewidths = dict(zip(filter_vals['natural'].keys(), [1, 2.5]))
         # Colours determined by eq-trop-ET.
         colours = dict(
             zip(filter_vals['equator-tropics-extratropics'].keys(), plt.rcParams['axes.prop_cycle'].by_key()['color'])
@@ -334,23 +350,25 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
                 ylabel = get_labels(var)
 
             grouped_data_dict = {'xvals': range(-24, -24 + n_hours)}
-            # Apply filters.
-            for filter_keys in filter_key_combinations:
-                full_filter = gen_full_filter(filter_vals, filter_keys)
+            if not nat_vs_all:
+                # Apply filters.
+                for filter_keys in filter_key_combinations:
+                    full_filter = gen_full_filter(filter_vals, filter_keys)
 
-                plot_kwargs = {
-                    'color': colours[filter_keys[1]],
-                    'linestyle': linestyles[filter_keys[2]],
-                }
-                percentage = full_filter.sum() / natural.sum() * 100
-                label = ' '.join(filter_keys[1:]) + f' ({percentage:.1f}%)'
-                grouped_data_dict[label] = {
-                    'data_array': data_array.isel(tracks=full_filter),
-                    'ylabel': ylabel,
-                    'plot_kwargs': plot_kwargs,
-                }
+                    plot_kwargs = {
+                        'linewidth': linewidths[filter_keys[0]],
+                        'color': colours[filter_keys[1]],
+                        'linestyle': linestyles[filter_keys[2]],
+                    }
+                    percentage = full_filter.sum() / natural.sum() * 100
+                    label = ' '.join(filter_keys[1:]) + f' ({percentage:.1f}%)'
+                    grouped_data_dict[label] = {
+                        'data_array': data_array.isel(tracks=full_filter),
+                        'ylabel': ylabel,
+                        'plot_kwargs': plot_kwargs,
+                    }
 
-            plot_grouped_precursor_mean_val(ax, grouped_data_dict)
+                plot_grouped_precursor_mean_val(ax, grouped_data_dict)
 
             # Plot the full data.
             plot_kwargs = {
@@ -359,11 +377,36 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
             }
             grouped_data_dict = {'xvals': range(-24, -24 + n_hours)}
             total = natural.sum()
-            grouped_data_dict[f'all ({total} tracks)'] = {
+            if nat_vs_all:
+                all_name = f'natural ({total} tracks)'
+            else:
+                all_name = f'all ({total} tracks)'
+            grouped_data_dict[all_name] = {
                 'data_array': data_array.isel(tracks=natural),
                 'ylabel': ylabel,
                 'plot_kwargs': plot_kwargs,
             }
+            if nat_vs_all:
+                plot_kwargs = {
+                    'color': 'k',
+                    'linestyle': '--',
+                }
+                total = (~natural).sum()
+                grouped_data_dict[f'split ({total} tracks)'] = {
+                    'data_array': data_array.isel(tracks=~natural),
+                    'ylabel': ylabel,
+                    'plot_kwargs': plot_kwargs,
+                }
+                plot_kwargs = {
+                    'color': 'k',
+                    'linestyle': '-',
+                }
+                total = len(natural)
+                grouped_data_dict[f'all ({total} tracks)'] = {
+                    'data_array': data_array,
+                    'ylabel': ylabel,
+                    'plot_kwargs': plot_kwargs,
+                }
 
             plot_grouped_precursor_mean_val(ax, grouped_data_dict)
 
@@ -376,9 +419,12 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
             ax.grid(ls='--', lw=0.5)
 
         # Set some figure-wide text.
-        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.4, 1.01), framealpha=1)
+        # ncols = 3 if nat_vs_all else 2
+        ncol = 1
+        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.5, 1.02), framealpha=1, ncol=ncol)
         axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
-
+        # handles, labels = axes[0, 0].get_legend_handles_labels()
+        # fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.0, 1.0), framealpha=1)
         plt.savefig(self.outputs[f'fig'])
 
 

@@ -539,7 +539,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
 
 
 class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
-    """Used for fig04.pdf, fig05.pdf, supp_fig03.pdf, supp_fig04.pdf, supp_fig05.pdf
+    """Used for fig04.pdf, fig05.pdf, supp_fig04.pdf, supp_fig05.pdf, supp_fig06.pdf
 
     As fig02.pdf, fig03.pdf, but just for one (each) variable at a time.
     Each combination of lat band/land-sea gets its own ax.
@@ -906,7 +906,7 @@ def plot_combined_hists_for_var(ax0, ax1, ds, var):
 
 
 class PlotCombineVarConditionalERA5Hist(TaskRule):
-    """Used for fig07.pdf, supp_fig06.pdf
+    """Used for fig07.pdf, supp_fig07.pdf
 
     Plot the conitional PDFs and probabilites for each of the 5 MCS regions.
     """
@@ -1029,7 +1029,7 @@ def plot_convection_hourly_hists(ds, var, axes=None):
 
 
 class PlotCombineConvectionConditionalERA5Hist(TaskRule):
-    """Used for fig08.pdf, supp_fig07.pdf, supp_fig09.pdf
+    """Used for fig08.pdf, supp_fig08.pdf, supp_fig10.pdf
 
     As fig07.pdf, but this time just the probability of MCS-type convection given ANY convection."""
 
@@ -1332,7 +1332,7 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
 
 class GenDataForConvectionConditionalERA5HistSeasonalDC(TaskRule):
-    """Data for supp_fig08.pdf
+    """Data for supp_fig09.pdf
 
     Use the diurnal cycle data to produce MCS-type convection conditional on any convection data.
     Can also be used to generate seasonal data as well.
@@ -1566,4 +1566,102 @@ class FigPlotCombineVarConditionalERA5HistSeasonalDC(TaskRule):
                 ax.set_title(f'{figchar}) {label}', loc='left')
 
         plt.savefig(self.outputs[f'fig_season_dc'])
+
+
+class FigPlotMcsLifetimes(TaskRule):
+    """Used for supp_fig03.pdf
+
+    Plot the number of MCSs surviving to a given duration, for each lat band/land-sea, and all."""
+    @staticmethod
+    def rule_inputs(years):
+        inputs = {}
+        for year in years:
+            inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
+        return inputs
+
+    @staticmethod
+    def rule_outputs(years):
+        ystr = cu.fmt_ystr(years)
+        outputs = {
+            'fig': (PATHS['figdir'] / 'mcs_env_cond_figs' /
+                    f'mcs_lifetimes_{ystr}.pdf'),
+        }
+        return outputs
+
+    var_matrix = {
+        'years': [[2020], cu.YEARS],
+    }
+
+
+    def rule_run(self):
+        tracks_paths = [p for k, p in self.inputs.items() if k.startswith('tracks_')]
+        tracks = McsTracks.mfopen(tracks_paths, None)
+        print(tracks.dstracks)
+
+        filter_vals, filter_key_combinations, natural = build_track_filters(tracks)
+
+        # Colours determined by lat band.
+        colours = dict(zip(
+            filter_vals['equator-tropics-extratropics'].keys(),
+            plt.rcParams['axes.prop_cycle'].by_key()['color']
+        ))
+        # Linestyles determined by land-sea.
+        linestyles = dict(zip(
+            filter_vals['land-sea'].keys(),
+            ['-', '--']
+        ))
+        grouped_data_dict = {}
+        # Apply filters.
+        for filter_keys in filter_key_combinations:
+            full_filter = gen_full_filter(filter_vals, filter_keys)
+
+            plot_kwargs = {
+                'color': colours[filter_keys[1]],
+                'linestyle': linestyles[filter_keys[2]],
+            }
+            percentage = full_filter.sum() / natural.sum() * 100
+            label = ' '.join(filter_keys[1:]) + f' ({percentage:.1f}%)'
+            grouped_data_dict[label] = {
+                'ds': tracks.dstracks.isel(tracks=full_filter),
+                'label': label,
+                'plot_kwargs': plot_kwargs,
+            }
+
+        grouped_data_dict[f'all ({natural.sum()} tracks)'] = {
+            'ds': tracks.dstracks,
+            'label': '',
+            'plot_kwargs': {'color': 'k', 'linestyle': ':'},
+        }
+
+        sns.set_theme(palette='deep')
+        sns.set_style('ticks')
+        sns.set_context('paper')
+
+        plt.figure(figsize=(10, 6), layout='constrained')
+        for k, v in grouped_data_dict.items():
+            c, ls = v['plot_kwargs']['color'], v['plot_kwargs']['linestyle']
+            mean_duration = v['ds'].track_duration.values.mean()
+            label = k + f' - mean {mean_duration:.1f}h'
+            plt.hist(
+                v['ds'].track_duration.values,
+                bins=np.linspace(0.5, 100.5, 101),
+                density=True,
+                cumulative=-1,
+                histtype='step',
+                label=label,
+                color=c,
+                linestyle=ls
+            )
+            plt.axvline(x=mean_duration, color=c, ls=ls)
+            duration_gt40_frac = (v['ds'].track_duration.values > 40).sum() / len(v['ds'].track_duration.values)
+            print(label, f'gt40h: {duration_gt40_frac * 100:.1f}%')
+
+        plt.legend()
+        plt.xlim((0, 100))
+        plt.axvline(x=4, ls='-', lw=1, color='k')
+        plt.grid(ls='--', lw=0.5)
+        plt.xlabel('time (h)')
+        plt.ylabel('MCS surviving fraction')
+
+        plt.savefig(self.outputs['fig'])
 

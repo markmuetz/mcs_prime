@@ -577,7 +577,9 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
     ]
 
     var_matrix = {
-        'years': [cu.YEARS],
+        # 'years': [cu.YEARS],
+        'years': [cu.YEARS, [2020]],
+        # 'years': [[2020]],
         'decomp_mode': ['all', 'diurnal_cycle', 'seasonal'],
         'radius': [100, 200, 500, 1000],
         'show_spread': [False, True],
@@ -636,7 +638,6 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
         for var in e5vars:
             print(var)
             fig, axes = plt.subplots(2, 3, layout='constrained', sharex=True, sharey=True)
-
             fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * 1.3))
 
             data_array = ds_full[f'mean_{var}'].sel(radius=self.radius).isel(times=slice(0, N)).load()
@@ -646,7 +647,8 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
             else:
                 ylabel = get_labels(var)
 
-            for i, (ax, filter_keys) in enumerate(zip(axes.flatten(), filter_key_combinations)):
+            fig_chars = np.array([string.ascii_lowercase[i] for i in range(6)]).reshape(2, 3)
+            for (fig_char, ax, filter_keys) in zip(fig_chars.T.flatten(), axes.T.flatten(), filter_key_combinations):
                 grouped_data_dict = {'xvals': range(-24, -24 + N)}
                 full_filter = gen_full_filter(filter_vals, filter_keys)
 
@@ -667,11 +669,11 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
                 plot_grouped_precursor_mean_val(ax, grouped_data_dict, show_spread=self.show_spread)
 
-                c = string.ascii_lowercase[i]
+                # fig_char = string.ascii_lowercase[i]
                 varname = ylabel[: ylabel.find('(')].strip()
                 units = ylabel[ylabel.find('(') :].strip()
-                label = ' '.join(filter_keys[1:][::-1])
-                ax.set_title(f'{c}) {label} ({percentage:.1f}%)', loc='left')
+                label = ' '.join(filter_keys[1:])
+                ax.set_title(f'{fig_char}) {label} ({percentage:.1f}%)', loc='left')
                 ax.axvline(x=0, color='k')
                 ax.set_facecolor('silver')
                 ax.grid(ls='--', lw=0.5)

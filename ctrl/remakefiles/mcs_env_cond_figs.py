@@ -707,42 +707,6 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
             plt.close('all')
 
 
-def plot_monthly_mcs_local_var(ax, ds, var):
-    mask_sum = ds.dist_mask_sum.sum(dim='time')
-
-    da_var = ds[f'mcs_local_{var}']
-    da_mean = ds[var]
-
-    vmax = max(np.max(ds[var].values), np.nanmax(ds[f'mcs_local_{var}'].values))
-    diff = (da_var - da_mean).mean(dim='time')
-    # Mask out grid points without much data.
-    masked_diff = np.ma.masked_array(diff.values, mask=mask_sum < 10)
-    if var == 'vertically_integrated_moisture_flux_div':
-        masked_diff *= -1e4
-
-    # Calculate max/min values so that they contain at least 90% of all points.
-    contain = 90
-    pmin = (100 - contain) / 2
-    pmax = 100 - pmin
-    percentiles = np.nanpercentile(masked_diff.compressed(), [pmin, pmax])
-    vmax = np.abs(percentiles).max()
-    vmin = -vmax
-
-    extent = (0, 360, -60, 60)
-    cmap = sns.color_palette('coolwarm', as_cmap=True)
-    im = ax.imshow(
-        masked_diff,
-        vmin=vmin,
-        vmax=vmax,
-        cmap=cmap,
-        extent=extent,
-    )
-
-    plt.colorbar(im, ax=ax, extend='both')
-    ax.coastlines()
-    ax.set_ylim((-60, 60))
-
-
 class PlotAllCombinedMcsLocalEnv(TaskRule):
     """Used for fig06.pdf
 
@@ -752,7 +716,7 @@ class PlotAllCombinedMcsLocalEnv(TaskRule):
     """
 
     @staticmethod
-    def rule_inputs(years):
+    def rule_inputs(years, radius):
         inputs = {
             f'mcs_local_env_{year}_{month}': fmtp(
                 cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV, year=year, month=month, mode='init'
@@ -763,59 +727,180 @@ class PlotAllCombinedMcsLocalEnv(TaskRule):
         return inputs
 
     @staticmethod
-    def rule_outputs(years):
+    def rule_outputs(years, radius):
         ystr = cu.fmt_ystr(years)
         outputs = {
-            f'fig_{radius}': (
+            'fig': (
                 PATHS['figdir'] / 'mcs_env_cond_figs' / f'all_combined_mcs_local_env_r{radius}km_init_{ystr}.pdf'
+            ),
+            'data': (
+                PATHS['figdir'] / 'mcs_env_cond_figs' / f'all_combined_mcs_local_env_r{radius}km_init_{ystr}.csv'
             )
-            for radius in [500]
         }
         return outputs
 
-    depends_on = [
-        plot_monthly_mcs_local_var,
-    ]
-
     var_matrix = {
-        'years': [cu.YEARS],
+        'years': [[2020], cu.YEARS],
+        'radius': [100, 200, 500, 1000],
     }
 
     # Possibly running out of mem?
-    config = {'slurm': {'mem': 512000, 'partition': 'high-mem', 'max_runtime': '24:00:00', 'account': None}}
+    # config = {'slurm': {'mem': 512000, 'partition': 'high-mem', 'max_runtime': '24:00:00', 'account': None}}
+
+    def rule_run(self):
+        sns.set_theme(palette='deep')
+        sns.set_style('ticks')
+        sns.set_context('paper')
+        radius = self.radius
+
+        data = []
+
+        with xr.open_mfdataset(self.inputs.values()) as ds:
+            ds.sel(radius=radius).load()
+            ds_rad = ds.sel(radius=radius)
+            mask_sum = ds_rad.dist_mask_sum.sum(dim='time')
+
+            print(f'{radius}km')
+            fig, axes = plt.subplots(4, 3, subplot_kw={'projection': ccrs.PlateCarree()}, layout='constrained')
+            # Size of fig. Each one is 360x120, or aspect of 3.
+            # Hence use /3 in height.
+            # 1.1 is a fudge factor for colorbar, title...
+            fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * 4 / 3 * 1.1))
+            for i, (ax, var) in enumerate(zip(axes.flatten(), STANDARD_E5VARS)):
+                title = f'-  {var}'
+                print(title)
+
+                da_var = ds_rad[f'mcs_local_{var}']
+                da_mean = ds_rad[var]
+
+                vmax = max(np.max(ds_rad[var].values), np.nanmax(ds_rad[f'mcs_local_{var}'].values))
+                diff = (da_var - da_mean).mean(dim='time')
+                # Mask out grid points without much data.
+                masked_diff = np.ma.masked_array(diff.values, mask=mask_sum < 10)
+                if var == 'vertically_integrated_moisture_flux_div':
+                    masked_diff *= -1e4
+
+                # Calculate max/min values so that they contain at least 90% of all points.
+                contain = 90
+                pmin = (100 - contain) / 2
+                pmax = 100 - pmin
+                percentiles = np.nanpercentile(masked_diff.compressed(), [pmin, pmax])
+                vmax = np.abs(percentiles).max()
+                vmin = -vmax
+
+                extent = (0, 360, -60, 60)
+                cmap = sns.color_palette('coolwarm', as_cmap=True)
+                im = ax.imshow(
+                    masked_diff,
+                    vmin=vmin,
+                    vmax=vmax,
+                    cmap=cmap,
+                    extent=extent,
+                )
+
+                plt.colorbar(im, ax=ax, extend='both')
+                ax.coastlines()
+                ax.set_ylim((-60, 60))
+                if var == 'vertically_integrated_moisture_flux_div':
+                    label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                else:
+                    label = get_labels(var)
+
+                gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, linewidth=1, color='gray')
+                gl.xlocator = mticker.FixedLocator([])
+                gl.ylocator = mticker.FixedLocator([-30, -10, 10, 30])
+                c = string.ascii_lowercase[i]
+                ax.set_title(f'{c}) {label}', loc='left')
+
+                # equality takes into account mask.
+                # Number of valid points is given by denom.
+                positive_diff = (masked_diff > 0).sum() / (~masked_diff.mask).sum()
+                negative_diff = (masked_diff < 0).sum() / (~masked_diff.mask).sum()
+                data.append((radius, var, positive_diff, negative_diff))
+
+            plt.savefig(self.outputs[f'fig'])
+            df = pd.DataFrame(columns=['radius', 'var', 'positive_diff', 'negative_diff'], data=data)
+            df.to_csv(self.outputs['data'])
+
+
+class PlotGeogNumPoints(TaskRule):
+    """Used for supp_fig07.pdf
+
+    Plot number of times each grid point is included at each radius from initiation points.
+    """
+
+    @staticmethod
+    def rule_inputs(years, radius):
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(
+                cu.FMT_PATH_COMBINE_MCS_LOCAL_ENV, year=year, month=month, mode='init'
+            )
+            for year in years
+            for month in cu.MONTHS
+        }
+        return inputs
+
+    @staticmethod
+    def rule_outputs(years, radius):
+        ystr = cu.fmt_ystr(years)
+        outputs = {
+            'fig': (
+                PATHS['figdir'] / 'mcs_env_cond_figs' / f'num_points_r{radius}km_init_{ystr}.pdf'
+            )
+        }
+        return outputs
+
+    var_matrix = {
+        'years': [[2020], cu.YEARS],
+        'radius': [100, 200, 500, 1000],
+    }
 
     def rule_run(self):
         sns.set_theme(palette='deep')
         sns.set_style('ticks')
         sns.set_context('paper')
 
+        radius = self.radius
+
         with xr.open_mfdataset(self.inputs.values()) as ds:
-            ds.load()
+            print(f'{radius}km')
+            fig, ax = plt.subplots(1, 1, subplot_kw={'projection': ccrs.PlateCarree()}, layout='constrained')
+            fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE))
+            # title = f'-  {var}'
+            # print(title)
+            mask_sum = ds.sel(radius=radius).dist_mask_sum.sum(dim='time')
+            max_val = mask_sum.values.max()
+            extent = (0, 360, -60, 60)
 
-            # for radius in [100, 200, 500, 1000]:
-            for radius in [500]:
-                print(f'{radius}km')
-                fig, axes = plt.subplots(4, 3, subplot_kw={'projection': ccrs.PlateCarree()}, layout='constrained')
-                # Size of fig. Each one is 360x120, or aspect of 3.
-                # Hence use /3 in height.
-                # 1.1 is a fudge factor for colorbar, title...
-                fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * 4 / 3 * 1.1))
-                for i, (ax, var) in enumerate(zip(axes.flatten(), STANDARD_E5VARS)):
-                    title = f'-  {var}'
-                    print(title)
-                    plot_monthly_mcs_local_var(ax, ds.sel(radius=radius), var)
-                    if var == 'vertically_integrated_moisture_flux_div':
-                        label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
-                    else:
-                        label = get_labels(var)
+            # AKA the UK cash system levels!
+            a = np.array([1, 2, 5])
+            b = 10**np.arange(1, 6)
+            # E.g. [10, 20, 50, 100...]
+            levels = (a[None, :] * b[:, None]).flatten()
+            idx_max = np.where(levels > max_val)[0][0]  # index of first value above max_val.
+            # Include next value above max_val. E.g. max_val = 150, include 200 as max level.
+            levels = levels[:idx_max + 1]
+            print(max_val, levels)
 
-                    gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, linewidth=1, color='gray')
-                    gl.xlocator = mticker.FixedLocator([])
-                    gl.ylocator = mticker.FixedLocator([-30, -10, 10, 30])
-                    c = string.ascii_lowercase[i]
-                    ax.set_title(f'{c}) {label}', loc='left')
+            cmap = sns.color_palette('flare', as_cmap=True)
+            colours = [cmap(i / len(levels)) for i in range(len(levels))]
 
-                plt.savefig(self.outputs[f'fig_{radius}'])
+            im = ax.contourf(
+                mask_sum[::-1],
+                levels=levels,
+                colors=colours,
+                extent=extent,
+            )
+
+            plt.colorbar(im, ax=ax, extend='both', label='number of counts')
+            ax.coastlines()
+            ax.set_ylim((-60, 60))
+
+            gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=False, linewidth=1, color='gray')
+            gl.xlocator = mticker.FixedLocator([])
+            gl.ylocator = mticker.FixedLocator([-30, -10, 10, 30])
+
+            plt.savefig(self.outputs['fig'])
 
 
 def plot_hist(ds, ax=None, reg='all', var='cape', s=None, log=True):
@@ -906,7 +991,7 @@ def plot_combined_hists_for_var(ax0, ax1, ds, var):
 
 
 class PlotCombineVarConditionalERA5Hist(TaskRule):
-    """Used for fig07.pdf, supp_fig07.pdf
+    """Used for fig07.pdf, supp_fig08.pdf
 
     Plot the conitional PDFs and probabilites for each of the 5 MCS regions.
     """
@@ -1029,7 +1114,7 @@ def plot_convection_hourly_hists(ds, var, axes=None):
 
 
 class PlotCombineConvectionConditionalERA5Hist(TaskRule):
-    """Used for fig08.pdf, supp_fig08.pdf, supp_fig10.pdf
+    """Used for fig08.pdf, supp_fig09.pdf, supp_fig11.pdf
 
     As fig07.pdf, but this time just the probability of MCS-type convection given ANY convection."""
 
@@ -1332,7 +1417,7 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
 
 class GenDataForConvectionConditionalERA5HistSeasonalDC(TaskRule):
-    """Data for supp_fig09.pdf
+    """Data for supp_fig10.pdf
 
     Use the diurnal cycle data to produce MCS-type convection conditional on any convection data.
     Can also be used to generate seasonal data as well.
@@ -1454,7 +1539,7 @@ class GenDataForConvectionConditionalERA5HistSeasonalDC(TaskRule):
 
 
 class FigPlotCombineVarConditionalERA5HistSeasonalDC(TaskRule):
-    """Used for supp_fig08.pdf
+    """Used for supp_fig10.pdf
 
     Heavy lifting is done by GenDataForConvectionConditionalERA5HistSeasonalDC"""
     rule_inputs = GenDataForConvectionConditionalERA5HistSeasonalDC.rule_outputs

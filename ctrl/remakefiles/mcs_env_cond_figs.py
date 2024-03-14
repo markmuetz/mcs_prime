@@ -431,7 +431,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
     """Used for fig03.pdf
 
     Similar to fig02.pdf, but combine equatorial/tropical MCSs, and show different spatial scales in one fig."""
-
+    # enabled = False
     @staticmethod
     def rule_inputs(years):
         # WARNING: It's important to get the ordering right here.
@@ -459,7 +459,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
     ]
 
     var_matrix = {
-        'years': [cu.YEARS],
+        'years': [cu.YEARS, [2020]],
     }
     # Running out of time on 4h queue.
     config = {'slurm': {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '24:00:00', 'account': None}}
@@ -490,7 +490,9 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
         fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * nrows * fudge_factor))
 
         radii = [100, 200, 500, 1000]
-        colours = dict(zip(radii, plt.rcParams['axes.prop_cycle'].by_key()['color']))
+        colour_vals = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        bgor = [colour_vals[i] for i in [0, 2, 1, 3]]  # blue, green, orange, red for seaborn default colours.
+        colours = dict(zip(radii, bgor))
         linestyles = dict(zip(filter_vals['land-sea'].keys(), ['-', '--']))
 
         for i, (ax, var) in enumerate(zip(axes.flatten(), STANDARD_E5VARS)):
@@ -533,7 +535,125 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
             ax.axvline(x=0, color='k')
             ax.grid(ls='--', lw=0.5)
 
-        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.8, 0))
+        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.8, 0), framealpha=1)
+        axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
+        plt.savefig(self.outputs[f'fig'])
+
+
+class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadiusRatio(TaskRule):
+    """Not used for a figure.
+
+    Like PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius/fig03.pdf but shows 200, 500, 1000km diff
+    from 100km, scaled by the appropriate amount."""
+    @staticmethod
+    def rule_inputs(years):
+        # WARNING: It's important to get the ordering right here.
+        # I need to loop over years first, then months, so that order of index matches tracks dataset.
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+            for year in years
+            for month in cu.MONTHS
+        }
+        for year in years:
+            inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
+        return inputs
+
+    @staticmethod
+    def rule_outputs(years):
+        ystr = cu.fmt_ystr(years)
+        return {
+            'fig': (
+                PATHS['figdir'] / 'mcs_env_cond_figs' / f'combined_filtered_radius_mcs_local_env_precursor_mean_{ystr}_ratio.pdf'
+            )
+        }
+
+    depends_on = [
+        plot_grouped_precursor_mean_val,
+    ]
+
+    var_matrix = {
+        'years': [cu.YEARS, [2020]],
+    }
+    config = {'slurm': {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '24:00:00', 'account': None}}
+
+    def rule_run(self):
+        print('Open datasets')
+        ds_full = xr.open_mfdataset(
+            [p for k, p in self.inputs.items() if k.startswith('mcs_local_env_')], combine='nested', concat_dim='tracks'
+        )
+        ds_full['tracks'] = np.arange(0, ds_full.dims['tracks'], 1, dtype=int)
+
+        tracks_paths = [p for k, p in self.inputs.items() if k.startswith('tracks_')]
+        tracks = McsTracks.mfopen(tracks_paths, None)
+
+        track_start_times = pd.DatetimeIndex(tracks.dstracks.start_basetime.values)
+
+        print('Build filters')
+        filter_vals, filter_key_combinations, natural = build_track_filters(tracks, combine_eq_tropics=True)
+
+        N = 73
+        nrows = ((len(STANDARD_E5VARS) - 1) // 3) + 1  # trust me.
+        sns.set_theme(palette='deep')
+        sns.set_style('ticks')
+        sns.set_context('paper')
+
+        fig, axes = plt.subplots(nrows, 3, layout='constrained', sharex=True)
+        fudge_factor = 0.6
+        fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * nrows * fudge_factor))
+
+        radii = [200, 500, 1000]
+        colour_vals = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        bgor = [colour_vals[i] for i in [0, 2, 1, 3]]  # blue, green, orange, red for seaborn default colours.
+        colours = dict(zip(radii, bgor[1:]))
+        linestyles = dict(zip(filter_vals['land-sea'].keys(), ['-', '--']))
+
+        for i, (ax, var) in enumerate(zip(axes.flatten(), STANDARD_E5VARS)):
+            print(var)
+            grouped_data_dict = {'xvals': range(-24, -24 + N)}
+            for filter_keys in filter_key_combinations:
+                full_filter = gen_full_filter(filter_vals, filter_keys)
+
+                percentage = full_filter.sum() / natural.sum() * 100
+                if i == 0:
+                    print(f'{filter_keys[2]} ({percentage:.1f}%)')
+
+                data_array_100_full = ds_full[f'mean_{var}'].sel(radius=100).isel(times=slice(0, N)).load()
+                data_array_100 = data_array_100_full.isel(tracks=full_filter)
+                if var == 'vertically_integrated_moisture_flux_div':
+                    data_array_100 = -data_array_100 * 1e4
+
+                for radius in radii:
+                    data_array = ds_full[f'mean_{var}'].sel(radius=radius).isel(times=slice(0, N)).load()
+
+                    label = f'{filter_keys[2]}: {radius} km'
+
+                    if var == 'vertically_integrated_moisture_flux_div':
+                        data_array = -data_array * 1e4
+                        ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                    else:
+                        ylabel = get_labels(var)
+
+                    plot_kwargs = {
+                        'color': colours[radius],
+                        'linestyle': linestyles[filter_keys[2]],
+                    }
+                    ratio = radius / 100
+                    grouped_data_dict[label] = {
+                        'data_array': (data_array.isel(tracks=full_filter) - data_array_100) / ratio,
+                        'ylabel': ylabel,
+                        'plot_kwargs': plot_kwargs,
+                    }
+
+            plot_grouped_precursor_mean_val(ax, grouped_data_dict)
+
+            c = string.ascii_lowercase[i]
+            varname = ylabel[: ylabel.find('(')].strip()
+            units = ylabel[ylabel.find('(') :].strip()
+            ax.set_title(f'{c}) {ylabel}', loc='left')
+            ax.axvline(x=0, color='k')
+            ax.grid(ls='--', lw=0.5)
+
+        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.8, 0), framealpha=1)
         axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
         plt.savefig(self.outputs[f'fig'])
 
@@ -655,6 +775,7 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                 percentage = full_filter.sum() / natural.sum() * 100
                 for j in range(n_time_filters):
                     tracks_filter = full_filter & decomp_filters[j]
+                    print('  ', var, ' '.join(filter_keys[1:]), tracks_filter.sum(), len(tracks_filter))
 
                     c = cmap(j / n_time_filters)
                     plot_kwargs = {

@@ -187,8 +187,9 @@ class McsMaskPlotter:
                 pixel_on_e5.latitude,
                 pixel_on_e5.precipitation,
                 levels=[3, 10],
-                colors=[purple, purple],
+                colors=['w', 'w'],
                 zorder=5,
+                linewidths=1.5,
             )
         if show_field:
             im = ax.imshow(

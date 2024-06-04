@@ -1,3 +1,6 @@
+from pathlib import Path
+import shutil
+
 import iris
 
 from remake import Remake, TaskRule
@@ -9,31 +12,50 @@ DATADIR = cu.PATHS['datadir']
 slurm_config = {'account': 'short4hr', 'queue': 'short-serial-4hr', 'mem': 64000}
 rmk = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
-SUITES = ['u-dg040', 'u-dg041', 'u-dg042']
+# SUITES = ['u-cv415']
+# SUITES = ['u-dg040', 'u-dg041', 'u-dg042']
+#
+# PP_DIRS = [
+#     DATADIR / 'UM_sims' / suite
+#     for suite in SUITES
+# ]
+PP_DIRS = []
+# /gws/nopw/j04/mcs_prime/mmuetz/data/UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em0
+PP_DIRS.append(DATADIR / 'UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em0')
+
 
 def pp_to_converted(pp_path, converter):
     return pp_path.parent / (pp_path.stem + f'.{converter}.nc')
 
 
-def ls_suite_pp_paths(suite, converter):
-    suitedir = DATADIR / 'UM_sims' / suite
-    short_suite = suite[2:]
-    pp_paths = sorted(suitedir.glob(f'{short_suite}a.p*.pp'))
+def ls_pp_paths(pp_dir, converter):
+    pp_paths = sorted(pp_dir.glob(f'*.pp'))
     out_paths = [pp_to_converted(p, converter) for p in pp_paths]
     return pp_paths, out_paths, [o.exists() for o in out_paths]
 
-def get_paths_for_converter(suites, converter):
+
+def get_paths_for_converter(pp_dirs, converter):
     paths = []
-    for suite in suites:
-        pp_paths, out_paths, out_paths_exist = ls_suite_pp_paths(suite, converter)
+    for pp_dir in pp_dirs:
+        pp_paths, out_paths, out_paths_exist = ls_pp_paths(pp_dir, converter)
         paths.extend([
             (pp_path, out_path)
             for pp_path, out_path in zip(pp_paths, out_paths)
         ])
     return paths
 
-IRIS_PATHS = get_paths_for_converter(SUITES, 'iris')
-CF_PATHS = get_paths_for_converter(SUITES, 'cf')
+
+IRIS_PATHS = get_paths_for_converter(PP_DIRS, 'iris')
+CF_PATHS = get_paths_for_converter(PP_DIRS, 'cf')
+
+
+def iris_to_netcdf_tmp_then_copy(cubes, outpath):
+    tmpdir = Path('/work/scratch-nopw2/mmuetz')
+    assert outpath.is_absolute()
+    tmppath = tmpdir / Path(*outpath.parts[1:])
+    tmppath.parent.mkdir(exist_ok=True, parents=True)
+    iris.save(cubes, tmppath)
+    shutil.move(tmppath, outpath)
 
 
 class IrisConvertPP2NC(TaskRule):
@@ -52,4 +74,4 @@ class IrisConvertPP2NC(TaskRule):
         out_path = self.outputs['out_path']
 
         cubes = iris.load(pp_path)
-        iris.save(cubes, out_path)
+        iris_to_netcdf_tmp_then_copy(cubes, out_path)

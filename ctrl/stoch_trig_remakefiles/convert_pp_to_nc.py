@@ -21,7 +21,8 @@ rmk = Remake(config=dict(slurm=slurm_config, content_checks=False))
 # ]
 PP_DIRS = []
 # /gws/nopw/j04/mcs_prime/mmuetz/data/UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em0
-PP_DIRS.append(DATADIR / 'UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em0')
+# PP_DIRS.extend([DATADIR / f'UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em{i}' for i in range(8)])
+PP_DIRS.extend([DATADIR / f'UM_sims/zhixiao_mirror/pa_um_off'])
 
 
 def pp_to_converted(pp_path, converter):
@@ -30,6 +31,9 @@ def pp_to_converted(pp_path, converter):
 
 def ls_pp_paths(pp_dir, converter):
     pp_paths = sorted(pp_dir.glob(f'*.pp'))
+    ff_paths = sorted([ff for ff in pp_dir.glob('*') if ff.suffix == ''])
+    print(ff_paths)
+    pp_paths.extend(ff_paths)
     out_paths = [pp_to_converted(p, converter) for p in pp_paths]
     return pp_paths, out_paths, [o.exists() for o in out_paths]
 

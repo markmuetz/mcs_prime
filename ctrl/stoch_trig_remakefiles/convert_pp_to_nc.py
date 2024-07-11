@@ -14,15 +14,17 @@ rmk = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
 # SUITES = ['u-cv415']
 # SUITES = ['u-dg040', 'u-dg041', 'u-dg042']
+SUITES = ['u-dg041', 'u-dg042']
 #
-# PP_DIRS = [
-#     DATADIR / 'UM_sims' / suite
-#     for suite in SUITES
-# ]
-PP_DIRS = []
+PP_DIRS = [
+    DATADIR / 'UM_sims' / suite
+    for suite in SUITES
+]
+# PP_DIRS = []
 # /gws/nopw/j04/mcs_prime/mmuetz/data/UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em0
 # PP_DIRS.extend([DATADIR / f'UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em{i}' for i in range(8)])
-PP_DIRS.extend([DATADIR / f'UM_sims/zhixiao_mirror/pa_um_off'])
+# PP_DIRS.extend([DATADIR / f'UM_sims/zhixiao_mirror/ens_um/pa_um_off'])
+# PP_DIRS.extend([DATADIR / f'UM_sims/zhixiao_mirror/ens_um_corrected/pa_um_on'])
 
 
 def pp_to_converted(pp_path, converter):
@@ -74,6 +76,7 @@ class IrisConvertPP2NC(TaskRule):
 
     def rule_run(self):
         print(f'{self.pp_path} -> {self.out_path}')
+
         pp_path = self.inputs['pp_path']
         out_path = self.outputs['out_path']
 

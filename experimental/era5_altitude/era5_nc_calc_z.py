@@ -8,8 +8,8 @@ Rd = 287.06
 g = 9.80665
 Re = 6371222.9 # m
 
-def compute_z_level(lev_idx, p, t_moist, z_h):
-    '''Compute z at half & full level for the given level, based on t/q/sp'''
+def compute_z_level(lev_idx, p, Tv, z_h):
+    '''Compute z at half & full level for the given level, based on T/q/sp'''
     # compute the pressures (on half-levels)
     # ph_lev, ph_levplusone = get_ph_levs(values, lev)
     ph_lev, ph_levplusone = p[lev_idx - 1], p[lev_idx]
@@ -24,11 +24,11 @@ def compute_z_level(lev_idx, p, t_moist, z_h):
     # z_f is the geopotential of this full level
     # integrate from previous (lower) half-level z_h to the
     # full level
-    z_f = z_h + (t_moist[lev_idx] * alpha)
+    z_f = z_h + (Tv[lev_idx] * alpha)
 
     # z_h is the geopotential of 'half-levels'
     # integrate z_h to next half level
-    z_h = z_h + (t_moist[lev_idx] * dlog_p)
+    z_h = z_h + (Tv[lev_idx] * dlog_p)
 
     return z_h, z_f
 
@@ -40,7 +40,7 @@ if __name__ == '__main__':
 
         e5calc = ERA5Calc('/gws/nopw/j04/mcs_prime/mmuetz/data/ERA5/ERA5_L137_model_levels_table.csv')
 
-        t = xr.load_dataarray(basepath + 'ecmwf-era5_oper_an_ml_202001010000.t.nc')[0].sel(latitude=slice(60, -60))
+        T = xr.load_dataarray(basepath + 'ecmwf-era5_oper_an_ml_202001010000.t.nc')[0].sel(latitude=slice(60, -60))
         q = xr.load_dataarray(basepath + 'ecmwf-era5_oper_an_ml_202001010000.q.nc')[0].sel(latitude=slice(60, -60))
         zsfc = xr.load_dataarray(basepath + 'ecmwf-era5_oper_an_ml_202001010000.z.nc')[0].sel(latitude=slice(60, -60))
         lnsp = xr.load_dataarray(basepath + 'ecmwf-era5_oper_an_ml_202001010000.lnsp.nc')[0].sel(latitude=slice(60, -60))
@@ -48,17 +48,18 @@ if __name__ == '__main__':
         print(p.shape)
 
         # Get levels in ascending order of height (starts at 137)
-        levels = t.level.values[::-1]
+        levels = T.level.values[::-1]
         print(levels)
 
-        t_moist = t.values * (1. + 0.609133 * q.values) * Rd
+        # 0.609133 = Rv/Rd - 1.
+        Tv = T.values * (1. + 0.609133 * q.values) * Rd
         z_h = zsfc.values
 
         z = np.zeros_like(p)
         for lev in levels:
             lev_idx = lev - 1
             print(lev, lev_idx)
-            z_h, z_f = compute_z_level(lev_idx, p, t_moist, z_h)
+            z_h, z_f = compute_z_level(lev_idx, p, Tv, z_h)
             z[lev_idx] = z_f
 
         h = z / g

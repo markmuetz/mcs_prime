@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 
+from metpy.units import units
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -11,8 +12,13 @@ import mcs_prime.mcs_prime_config_util as cu
 from mcs_prime.era5_calc import ERA5Calc
 
 sys.path.insert(0, '/home/users/mmuetz/projects/ecape_calc')
+# My version of peters2023 code.
 from ecape_calc import compute_CAPE_CIN, compute_NCAPE, compute_VSR, compute_ETILDE
 from params import T1, T2
+
+# Capella github with minor mods.
+from ecape.calc import calc_ecape
+
 
 
 OUTDIR = cu.PATHS['outdir']
@@ -48,6 +54,8 @@ class Era5ComputeAlt:
         q = self.ds.q.values
         p = self.e5calc.calc_pressure(self.ds.lnsp.values)
         self.p = p
+        print(p[-1].mean())
+        raise
         zsfc = self.ds.z.values
 
         # Get levels in ascending order of height (starts at 137)
@@ -99,7 +107,7 @@ class Era5ComputeAlt:
         return z_h, z_f
 
 
-def compute_ECAPE_etc(ds, comp_alt, lon_idx, lat_idx):
+def peters23_compute_ECAPE_etc(ds, comp_alt, lon_idx, lat_idx):
     # ERA5 indexes levels from highest to lowest.
     levlatlon_idx = (slice(None, None, -1), lat_idx, lon_idx)
     T0 = ds.t.values[levlatlon_idx]
@@ -148,9 +156,56 @@ def compute_ECAPE_etc(ds, comp_alt, lon_idx, lat_idx):
         )
 
 
+def capella_compute_ECAPE_etc(ds, comp_alt, lon_idx, lat_idx):
+    # ERA5 indexes levels from highest to lowest.
+    levlatlon_idx = (slice(None, None, -1), lat_idx, lon_idx)
+    T0 = ds.t.values[levlatlon_idx]
+    q0 = ds.q.values[levlatlon_idx]
+    u0 = ds.u.values[levlatlon_idx]
+    v0 = ds.v.values[levlatlon_idx]
+    p0 = comp_alt.p[levlatlon_idx]
+    z0 = comp_alt.alt[levlatlon_idx]
+
+    z0 = z0 * units('m')
+    p0 = p0 * units('Pa')
+    T0 = T0 * units('K')
+    q0 = q0 * units('kg/kg')
+    u0 = u0 * units('m/s')
+    v0 = v0 * units('m/s')
+
+    # TODO:
+    # Appears to be a problem in the ODE solver for the LFC.
+    # lsoda--  at t (=r1), too much accuracy requested
+    #               for precision of machine..  see tolsf (=r2)
+    #             in above,  r1 =  0.3448291218653D+02   r2 =                  NaN
+    CAPE, CIN, LFC, EL, NCAPE, V_SR, ECAPE = calc_ecape(
+        z0,
+        p0,
+        T0,
+        q0,
+        u0,
+        v0,
+        'most_unstable',
+        # undiluted_cape=cape,
+    )
+
+    return dict(
+        CAPE=CAPE.magnitude,
+        CIN=CIN.magnitude,
+        LFC=LFC.magnitude,
+        EL=EL.magnitude,
+        NCAPE=NCAPE.magnitude,
+        V_SR=V_SR.magnitude,
+        Etilde=ECAPE.magnitude / CAPE.magnitude,
+        varepsilon=0,
+        radius=0,
+        ECAPE=ECAPE.magnitude,
+    )
+
+
 class Era5ECAPE(TaskRule):
     @staticmethod
-    def rule_inputs(date, cov):
+    def rule_inputs(date, cov, method):
         basepath = Path(f'/badc/ecmwf-era5/data/oper/an_ml/' + date.strftime('%Y/%m/%d'))
         tstamp = date.strftime('%Y%m%d%H%M')
         inputs = {
@@ -161,22 +216,24 @@ class Era5ECAPE(TaskRule):
 
 
     @staticmethod
-    def rule_outputs(date, cov):
+    def rule_outputs(date, cov, method):
         outdir = OUTDIR / 'mcs_env_cond_reviews/ecape' / date.strftime('%Y/%m/%d')
         tstamp = date.strftime('%Y%m%d%H%M')
         if cov == 'quick':
-            outputs = {'output': outdir / 'quick' / f'ecmwf-era5_oper_an_ml_{tstamp}.ecape.quick.nc'}
+            outputs = {'output': outdir / 'quick' / method / f'ecmwf-era5_oper_an_ml_{tstamp}.{method}_ecape.quick.nc'}
         else:
-            outputs = {'output': outdir / 'full' / f'ecmwf-era5_oper_an_ml_{tstamp}.ecape.nc'}
+            outputs = {'output': outdir / 'full' / method / f'ecmwf-era5_oper_an_ml_{tstamp}.{method}_ecape.nc'}
         return outputs
 
     var_matrix = {
         'date': dates,
-        'cov': ['quick', 'full'],
-        # 'cov': ['quick'],
+        # 'cov': ['quick', 'full'],
+        'cov': ['quick'],
+        # 'method': ['peters2023', 'capella'],
+        'method': ['capella'],
     }
 
-    depends_on = [compute_ECAPE_etc]
+    depends_on = [peters23_compute_ECAPE_etc]
 
     def rule_run(self):
         ds = xr.open_mfdataset(self.inputs.values()).isel(time=0).sel(latitude=slice(60, -60)).load()
@@ -192,15 +249,25 @@ class Era5ECAPE(TaskRule):
         lons = list(range(0, 1440, step))
         lats = list(range(0, 481, step))
         output = np.full((10, len(lats), len(lons)), np.nan)
+        successful = 0
+        unsuccessful = 0
         for i, lon_idx in enumerate(lons):
-            # print(f'{i / len(lons) * 100:.1f}%')
+            print(f'{i / len(lons) * 100:.1f}%')
             for j, lat_idx in enumerate(lats):
                 try:
-                    ecape_dict = compute_ECAPE_etc(ds, comp_alt, lon_idx, lat_idx)
+                    if self.method == 'peters2023':
+                        ecape_dict = peters23_compute_ECAPE_etc(ds, comp_alt, lon_idx, lat_idx)
+                    elif self.method == 'capella':
+                        ecape_dict = capella_compute_ECAPE_etc(ds, comp_alt, lon_idx, lat_idx)
+
+                    successful += 1
                     for k, key in enumerate(ecape_dict.keys()):
                         output[k, j, i] = ecape_dict[key]
                 except Exception as e:
+                    unsuccessful += 1
+                    # print(e)
                     pass
+            print(successful, unsuccessful)
 
         lon = ds.longitude.values[lons]
         lat = ds.latitude.values[lats]

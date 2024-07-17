@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import warnings
 
 import cartopy.crs as ccrs
 from matplotlib.colors import LogNorm
@@ -12,6 +13,7 @@ from metpy.units import units
 import numpy as np
 import pandas as pd
 from scipy.stats import linregress
+import seaborn as sns
 import xarray as xr
 
 
@@ -74,7 +76,7 @@ class Era5ComputeAlt:
         # print(levels)
 
         # 0.609133 = Rv/Rd - 1.
-        # TODO: Why extra RD
+        # virtual T
         Tv = T * (1. + 0.609133 * q) * Rd
         z_h = zsfc
 
@@ -519,6 +521,8 @@ ptiles = np.array([1, 5, 10, 25, 50, 75, 90, 95, 99])
 class PlotEra5ECAPE(TaskRule):
     @staticmethod
     def rule_inputs(cov, method):
+        if cov == 'superquick':
+            cov = 'quick'
         inputs = {}
         for date in dates:
             outdir = OUTDIR / 'mcs_env_cond_reviews/ecape' / date.strftime('%Y/%m/%d')
@@ -532,19 +536,29 @@ class PlotEra5ECAPE(TaskRule):
     def rule_outputs(cov, method):
         figdir = FIGDIR / 'mcs_env_cond_reviews/ecape'
         outputs = {
-            'spatial_mean': figdir / cov / method / f'fig_spatial_vars.{method}_ecape.{cov}.png',
+            'spatial_mean': figdir / cov / method / f'fig_spatial_mean.{method}_ecape.{cov}.png',
             'cape_vs_ecape': figdir / cov / method / f'fig_cape_vs_ecape.{method}_ecape.{cov}.png',
+            'ecape_vs_cape': figdir / cov / method / f'fig_ecape_vs_cape.{method}_ecape.{cov}.png',
         }
+        outputs.update({
+            f'spatial_ptile{p:02d}': figdir / cov / method / f'fig_spatial_ptile{p:02d}.{method}_ecape.{cov}.png'
+            for p in ptiles
+        })
+
         return outputs
 
     var_matrix = {
-        'cov': ['quick', 'full'],
+        # 'cov': ['quick', 'full'],
+        # 'cov': ['superquick'],
+        'cov': ['superquick', 'quick', 'full'],
         # 'cov': ['quick'],
         'method': ['peters2023'],
     }
 
     def rule_run(self):
         ds = xr.open_mfdataset(self.inputs.values())
+        if self.cov == 'superquick':
+            ds = ds.isel(time=slice(24))
         print(ds)
 
         print('Loading dataset')
@@ -553,10 +567,6 @@ class PlotEra5ECAPE(TaskRule):
 
         cu.print_mem_usage()
 
-        fig, axes = plt.subplots(
-            5, 2, sharex=True, sharey=True, layout='constrained',
-            subplot_kw={'projection': ccrs.PlateCarree()}
-        )
         dkeys = list(ds.data_vars.keys())
         units = {
             'CAPE': 'J kg$^{-1}$',
@@ -571,16 +581,41 @@ class PlotEra5ECAPE(TaskRule):
             'ECAPE': 'J kg$^{-1}$',
         }
 
+        fig, axes = plt.subplots(
+            5, 2, sharex=True, sharey=True, layout='constrained',
+            subplot_kw={'projection': ccrs.PlateCarree()}
+        )
+        print('spatial mean')
+        fig.suptitle('spatial mean')
         fig.set_size_inches(15, 12)
         for i, (key, ax) in enumerate(zip(dkeys, axes.flatten())):
-            print(key)
             ax.set_title(key)
             im = ax.pcolormesh(ds.longitude, ds.latitude, ds[key].mean(dim='time').values)
             plt.colorbar(im, ax=ax, label=units[key])
             ax.coastlines()
         plt.savefig(self.outputs['spatial_mean'])
-
         plt.close('all')
+
+        for ptile in ptiles:
+            print(f'spatial percentile {ptile:02d}%')
+            fig, axes = plt.subplots(
+                5, 2, sharex=True, sharey=True, layout='constrained',
+                subplot_kw={'projection': ccrs.PlateCarree()}
+            )
+            fig.suptitle(f'spatial percentile {ptile:02d}%')
+            fig.set_size_inches(15, 12)
+            for i, (key, ax) in enumerate(zip(dkeys, axes.flatten())):
+                ax.set_title(key)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', r'All-NaN (slice|axis) encountered')
+                    if key == 'CIN':
+                        im = ax.pcolormesh(ds.longitude, ds.latitude, np.nanpercentile(ds[key].values, 100 - ptile, axis=0))
+                    else:
+                        im = ax.pcolormesh(ds.longitude, ds.latitude, np.nanpercentile(ds[key].values, ptile, axis=0))
+                plt.colorbar(im, ax=ax, label=units[key])
+                ax.coastlines()
+            plt.savefig(self.outputs[f'spatial_ptile{ptile:02d}'])
+            plt.close('all')
 
         cape = ds.CAPE.values.flatten()
         ecape = ds.ECAPE.values.flatten()
@@ -595,9 +630,42 @@ class PlotEra5ECAPE(TaskRule):
         im = plt.hexbin(cape, ecape, norm=LogNorm(), gridsize=40)
         plt.colorbar(im)
         plt.plot(x, y, 'k--', label=f'slope: {lr.slope:.2f}\nintercept: {lr.intercept:.2f}\nr$^2$: {lr.rvalue**2:.2f}')
+        for Etilde_a, fmt in [(0.25, '.2f'), (0.5, '.1f'), (1, '.0f'), (2, '.0f')]:
+            plt.plot(x, Etilde_a * x, label=f'$\widetilde{{\mathrm{{E}}}}_A$: {Etilde_a:{fmt}}')
         plt.xlabel('CAPE (J kg$^{-1}$)')
         plt.ylabel('ECAPE (J kg$^{-1}$)')
+        plt.xlim((cape.min(), cape.max()))
+        plt.ylim((ecape.min(), ecape.max()))
         plt.legend()
         plt.savefig(self.outputs['cape_vs_ecape'])
+        plt.close('all')
+
+        lr = linregress(ecape, cape)
+        x = np.array([ecape.min(), ecape.max()])
+        y = lr.slope * x + lr.intercept
+
+        plt.figure(layout='constrained')
+        im = plt.hexbin(ecape, cape, norm=LogNorm(), gridsize=40)
+        # sns.kdeplot(x=ecape, y=cape, levels=[0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99])
+        # This is sloooow for the full coverage data.
+        if self.cov == 'full':
+            # Instead, subsample the data to 2 million points to calculate the kernel density estimate.
+            idx = np.sort(np.random.choice(np.arange(len(ecape)), int(2e6), replace=False))
+            sns.kdeplot(x=ecape[idx], y=cape[idx], levels=[0.01], color='white')
+        elif self.cov == 'quick':
+            idx = np.sort(np.random.choice(np.arange(len(ecape)), int(1e6), replace=False))
+            sns.kdeplot(x=ecape[idx], y=cape[idx], levels=[0.01], color='white')
+        else:
+            sns.kdeplot(x=ecape, y=cape, levels=[0.01], color='white')
+        plt.colorbar(im)
+        plt.plot(x, y, 'k--', label=f'slope: {lr.slope:.2f}\nintercept: {lr.intercept:.2f}\nr$^2$: {lr.rvalue**2:.2f}')
+        for Etilde_a, fmt in [(0.25, '.2f'), (0.5, '.1f'), (1, '.0f'), (2, '.0f')]:
+            plt.plot(x, x / Etilde_a, label=f'$\widetilde{{\mathrm{{E}}}}_A$: {Etilde_a:{fmt}}')
+        plt.xlabel('ECAPE (J kg$^{-1}$)')
+        plt.ylabel('CAPE (J kg$^{-1}$)')
+        plt.xlim((0, ecape.max()))
+        plt.ylim((0, cape.max()))
+        plt.legend()
+        plt.savefig(self.outputs['ecape_vs_cape'])
         plt.close('all')
 

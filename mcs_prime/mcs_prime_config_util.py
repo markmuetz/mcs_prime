@@ -311,6 +311,14 @@ FMT_PATH_ERA5P_DELTA = (
 )
 FMT_PATH_ERA5_MEANFIELD = PATHS['outdir'] / 'era5_processed' / '{year}' / 'era5_mean_field_{year}_{month:02d}.nc'
 
+# Divergence on different levels
+# ==============================
+FMT_PATH_ERA5P_DIV = (
+    PATHS['outdir']
+    / 'era5_processed/{year}/{month:02d}/{day:02d}'
+    / 'ecmwf-era5_oper_an_ml_{year}{month:02d}{day:02d}{hour:02d}00.proc_div.nc'
+)
+
 # MCS pixel data regridded to ERA5 grid (i.e. coarsened).
 # =======================================================
 # mcs_track_pixel_on_era5_grid

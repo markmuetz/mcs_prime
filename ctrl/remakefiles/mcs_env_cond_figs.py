@@ -1516,8 +1516,8 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
             for var in e5vars:
                 print(var)
-                ds_full[f'mean_{var}'].sel(radius=200).isel(times=0).load()
-                data_array = ds_full[f'mean_{var}'].sel(radius=self.radius).isel(times=0, tracks=full_filter)
+                ds_full[f'mean_{var}'].sel(radius=self.radius, times=0).load()
+                data_array = ds_full[f'mean_{var}'].sel(radius=self.radius, times=0).isel(tracks=full_filter)
 
                 if var == 'vertically_integrated_moisture_flux_div':
                     data_array = -data_array * 1e4

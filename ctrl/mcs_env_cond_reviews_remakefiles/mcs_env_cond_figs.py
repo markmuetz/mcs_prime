@@ -12,6 +12,7 @@ I.e. they are done together in one task. This means it can take a long time (hou
 Not ideal! Unfortunately it is not straightforward to separate the processing/plotting code.
 """
 from itertools import product
+from pathlib import Path
 import string
 
 import cartopy.crs as ccrs
@@ -22,6 +23,7 @@ from matplotlib.colors import LogNorm
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from scipy.stats import linregress
 import xarray as xr
 
 from remake import Remake, TaskRule
@@ -84,12 +86,12 @@ def get_labels(var):
         'RHmid': 'RHmid (-)',
         'delta_3h_cape': r'$\Delta$ 3h CAPE (J kg$^{-1}$)',
         'delta_3h_tcwv': r'$\Delta$ 3h TCWV (mm)',
-        'div_ml114': 'convergence at 850 hPa',
-        'div_ml105': 'convergence at 700 hPa',
-        'div_ml101': 'convergence at 600 hPa',
-        'vertically_integrated_div_ml114_surf': 'VI conv. surf. to 850 hPa',
-        'vertically_integrated_div_ml105_surf': 'VI conv. surf. to 700 hPa',
-        'vertically_integrated_div_ml101_surf': 'VI conv. surf. to 600 hPa',
+        'div_ml114': 'conv. at 850 hPa (10$^{-5}$ s$^{-1}$)',
+        'div_ml105': 'conv. at 700 hPa (10$^{-5}$ s$^{-1}$)',
+        'div_ml101': 'conv. at 600 hPa (10$^{-5}$ s$^{-1}$)',
+        'vertically_integrated_div_ml114_surf': 'VI conv. surf. to 850 hPa (m s$^{-1}$)',
+        'vertically_integrated_div_ml105_surf': 'VI conv. surf. to 700 hPa (m s$^{-1}$)',
+        'vertically_integrated_div_ml101_surf': 'VI conv. surf. to 600 hPa (m s$^{-1}$)',
     }
     return labels[var]
 
@@ -278,8 +280,11 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
         sns.set_theme(palette='deep')
         sns.set_style('ticks')
         sns.set_context('paper')
-        fig, axes = plt.subplots(4, 3, layout='constrained', sharex=True)
+        fig, axes = plt.subplots(3, 3, layout='constrained', sharex=True)
         fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, 0.6 * SUBFIG_SQ_SIZE * 4))
+        for ax in axes.flatten()[[1, 2]]:
+            ax.axis('off')
+        flat_axes = axes.flatten()[[0, 3, 4, 5, 6, 7, 8]]  # 7 ax.
 
         # N.B. works even when only one key, as just gets 1 from 2nd list.
         linewidths = dict(zip(filter_vals['natural'].keys(), [1, 2.5]))
@@ -290,7 +295,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
         # Linestyles determined by land-sea.
         linestyles = dict(zip(filter_vals['land-sea'].keys(), ['-', '--']))
 
-        for i, (ax, var) in enumerate(zip(axes.flatten(), STANDARD_E5VARS)):
+        for i, (ax, var) in enumerate(zip(flat_axes, ['vertically_integrated_moisture_flux_div'] + DIV_ERA5VARS)):
             print(var)
             data_array = ds_full[f'mean_{var}'].sel(radius=self.radius).isel(times=slice(0, n_hours)).load()
 
@@ -298,7 +303,10 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
                 data_array = -data_array * 1e4
                 ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
             elif var in DIV_ERA5VARS:
-                data_array = -data_array
+                if var.startswith('div'):
+                    data_array = -data_array * 1e5
+                else:
+                    data_array = -data_array
                 ylabel = get_labels(var)
             else:
                 ylabel = get_labels(var)
@@ -375,10 +383,146 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
         # Set some figure-wide text.
         # ncols = 3 if nat_vs_all else 2
         ncol = 1
-        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.5, 1.02), framealpha=1, ncol=ncol)
+        axes[1, -1].legend(loc='lower left', bbox_to_anchor=(0.5, 1.02), framealpha=1, ncol=ncol)
         axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
         # handles, labels = axes[0, 0].get_legend_handles_labels()
         # fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.0, 1.0), framealpha=1)
+        plt.savefig(self.outputs[f'fig'])
+
+
+class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
+    """Used for fig03.pdf
+
+    Similar to fig02.pdf, but combine equatorial/tropical MCSs, and show different spatial scales in one fig."""
+    # enabled = False
+    @staticmethod
+    def rule_inputs(years):
+        # WARNING: It's important to get the ordering right here.
+        # I need to loop over years first, then months, so that order of index matches tracks dataset.
+        inputs = {
+            f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+            for year in years
+            for month in cu.MONTHS
+        }
+        inputs.update(
+            {
+                f'mcs_local_env_{year}_{month}_{var}': fmtp(FMT_PATH_MCS_ENV_COND_REVS_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month, var=var)
+                for year in years
+                for month in cu.MONTHS
+                for var in DIV_ERA5VARS
+            }
+        )
+        for year in years:
+            inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
+        return inputs
+
+    @staticmethod
+    def rule_outputs(years):
+        ystr = cu.fmt_ystr(years)
+        return {
+            'fig': (
+                PATHS['figdir'] / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs' /
+                f'combined_filtered_radius_mcs_local_env_precursor_mean_{ystr}.pdf'
+            )
+        }
+
+    depends_on = [
+        plot_grouped_precursor_mean_val,
+    ]
+
+    var_matrix = {
+        'years': [[2020]],
+    }
+    # Running out of time on 4h queue.
+    # config = {'slurm': {'queue': 'short-serial', 'mem': 64000, 'max_runtime': '24:00:00', 'account': None}}
+
+    def rule_run(self):
+        print('Open datasets')
+        ds_full = xr.open_mfdataset(
+            [p for k, p in self.inputs.items() if k.startswith('mcs_local_env_')],
+            # I used this originally, because it was used in Zhe Feng's code.
+            # BUT it causes an exception here, and I don't think it's necessary
+            # (I've tested in a notebook and am happy with this).
+            # combine='nested', concat_dim='tracks'
+        )
+        ds_full['tracks'] = np.arange(0, ds_full.dims['tracks'], 1, dtype=int)
+        print(ds_full)
+
+        tracks_paths = [p for k, p in self.inputs.items() if k.startswith('tracks_')]
+        tracks = McsTracks.mfopen(tracks_paths, None)
+
+        track_start_times = pd.DatetimeIndex(tracks.dstracks.start_basetime.values)
+
+        print('Build filters')
+        filter_vals, filter_key_combinations, natural = build_track_filters(tracks, combine_eq_tropics=True)
+
+        N = 73
+        nrows = 3
+        sns.set_theme(palette='deep')
+        sns.set_style('ticks')
+        sns.set_context('paper')
+
+        fig, axes = plt.subplots(nrows, 3, layout='constrained', sharex=True)
+        fudge_factor = 0.6
+        fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * nrows * fudge_factor))
+        for ax in axes.flatten()[[1, 2]]:
+            ax.axis('off')
+        flat_axes = axes.flatten()[[0, 3, 4, 5, 6, 7, 8]]  # 7 ax.
+
+        radii = [100, 200, 500, 1000]
+        colour_vals = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        bgor = [colour_vals[i] for i in [0, 2, 1, 3]]  # blue, green, orange, red for seaborn default colours.
+        colours = dict(zip(radii, bgor))
+        linestyles = dict(zip(filter_vals['land-sea'].keys(), ['-', '--']))
+
+        for i, (ax, var) in enumerate(zip(flat_axes, ['vertically_integrated_moisture_flux_div'] + DIV_ERA5VARS)):
+            print(var)
+            grouped_data_dict = {'xvals': range(-24, -24 + N)}
+            for filter_keys in filter_key_combinations:
+                full_filter = gen_full_filter(filter_vals, filter_keys)
+
+                percentage = full_filter.sum() / natural.sum() * 100
+                if i == 0:
+                    print(f'{filter_keys[2]} ({percentage:.1f}%)')
+
+                for radius in radii:
+                    data_array = ds_full[f'mean_{var}'].sel(radius=radius).isel(times=slice(0, N)).load()
+
+                    label = f'{filter_keys[2]}: {radius} km'
+
+                    if var == 'vertically_integrated_moisture_flux_div':
+                        data_array = -data_array * 1e4
+                        ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                    elif var in DIV_ERA5VARS:
+                        if var.startswith('div'):
+                            data_array = -data_array * 1e5
+                        else:
+                            data_array = -data_array
+                        ylabel = get_labels(var)
+                    else:
+                        ylabel = get_labels(var)
+
+                    plot_kwargs = {
+                        'color': colours[radius],
+                        'linestyle': linestyles[filter_keys[2]],
+                    }
+                    grouped_data_dict[label] = {
+                        'data_array': data_array.isel(tracks=full_filter),
+                        'ylabel': ylabel,
+                        'plot_kwargs': plot_kwargs,
+                    }
+
+            plot_grouped_precursor_mean_val(ax, grouped_data_dict)
+
+            c = string.ascii_lowercase[i]
+            varname = ylabel[: ylabel.find('(')].strip()
+            units = ylabel[ylabel.find('(') :].strip()
+            ax.set_title(f'{c}) {ylabel}', loc='left')
+            ax.axvline(x=0, color='k')
+            ax.grid(ls='--', lw=0.5)
+
+        axes[1, -1].legend(loc='lower left', bbox_to_anchor=(0.8, 0), framealpha=1)
+        axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
         plt.savefig(self.outputs[f'fig'])
 
 
@@ -410,6 +554,12 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
         )
         for t in CORR_TIMES},
         **{f'fig2_{t}': (
+            PATHS['figdir']
+            / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
+            / f'sel_corr_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.pdf'
+        )
+        for t in CORR_TIMES},
+        **{f'fig3_{t}': (
             PATHS['figdir']
             / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
             / f'corr2_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.pdf'
@@ -464,8 +614,6 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
         for t in CORR_TIMES:
             print(t, filter_keys)
-            fig, ax = plt.subplots(1, 1, layout='constrained')
-            fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3 + 3, SUBFIG_SQ_SIZE * 3))
             # fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 4 + 3, SUBFIG_SQ_SIZE * 4))
 
             data_dict[filter_keys] = {}
@@ -484,7 +632,10 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                     data_array = -data_array * 1e4
                     label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
                 elif var in DIV_ERA5VARS:
-                    data_array = -data_array
+                    if var.startswith('div'):
+                        data_array = -data_array * 1e5
+                    else:
+                        data_array = -data_array
                     label = get_labels(var)
                 else:
                     label = get_labels(var)
@@ -493,17 +644,33 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                 data_dict[filter_keys][varname] = data_array.values
 
             df = pd.DataFrame(data_dict[filter_keys])
-            corr = df.corr()
-            print(corr)
-            sns.heatmap(corr, ax=ax, cmap='coolwarm', annot=True, fmt='.2f', vmin=-1, vmax=1)
-            ax.set_aspect(1)
-            if filter_keys != 'all':
-                ax.set_title(' '.join(filter_keys[1:]) + f' ({percentage:.1f}%)')
-            else:
-                ax.set_title(f'all ({natural.sum()} tracks)')
-            plt.savefig(self.outputs[f'fig_{t}'])
+            for corr_vars in ['all', 'selected']:
+                fig, ax = plt.subplots(1, 1, layout='constrained')
+                if corr_vars == 'all':
+                    fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3 + 3, SUBFIG_SQ_SIZE * 3))
+                    corr = df.corr()
+                else:
+                    fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 1.5 + 3, SUBFIG_SQ_SIZE * 1.5))
+                    div_vars = [
+                        f'{method} {plev} hPa'
+                        for method in ['conv. at', 'VI conv. surf. to']
+                        for plev in [850, 700, 600]
+                    ]
 
-            g = sns.PairGrid(df, y_vars=['MFC'], x_vars=['convergence at 850 hP', 'VI conv. surf. to 850 hP'])
+                    corr = df[['MFC'] + div_vars].corr()
+                print(corr)
+                sns.heatmap(corr, ax=ax, cmap='coolwarm', annot=True, fmt='.2f', vmin=-1, vmax=1)
+                ax.set_aspect(1)
+                if filter_keys != 'all':
+                    ax.set_title(' '.join(filter_keys[1:]) + f' ({percentage:.1f}%)')
+                else:
+                    ax.set_title(f'all ({natural.sum()} tracks)')
+                if corr_vars == 'all':
+                    plt.savefig(self.outputs[f'fig_{t}'])
+                else:
+                    plt.savefig(self.outputs[f'fig2_{t}'])
+
+            g = sns.PairGrid(df, y_vars=['MFC'], x_vars=['conv. at 850 hPa', 'VI conv. surf. to 700 hPa'])
             def hexbin(x, y, color, max_series=None, min_series=None, **kwargs):
                 # cmap = sns.light_palette(color, as_cmap=True)
                 ax = plt.gca()
@@ -512,7 +679,110 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                 plt.hexbin(x, y, gridsize=25, extent=[xmin, xmax, ymin, ymax], **kwargs)
 
             g.map(hexbin, max_series=df.max(), min_series=df.min(), norm=LogNorm())
-            plt.savefig(self.outputs[f'fig2_{t}'])
+            plt.savefig(self.outputs[f'fig3_{t}'])
 
 
+day_range = [
+    pd.date_range(f'2020-{m:02d}-01 00:00', f'2020-{m:02d}-01 23:00', freq='H')
+    for m in range(1, 13)
+]
+
+dates = pd.DatetimeIndex(pd.concat([pd.Series(dti) for dti in day_range]))
+
+class PlotERA5Correlation(TaskRule):
+    @staticmethod
+    def rule_inputs(cov):
+        basedir = f'/gws/nopw/j04/mcs_prime/mmuetz/data/mcs_prime_output/era5_processed/'
+        if cov == 'full':
+            sel_dates = dates
+        elif cov == 'quick':
+            sel_dates = dates[:2]
+
+        inputs = {
+            f'era5_{v}_{date}': Path(
+                basedir +
+                f'{date.year}/{date.month:02d}/01/' +
+                f'ecmwf-era5_oper_an_ml_{date.year}{date.month:02d}01{date.hour:02d}00.proc_{v}.nc'
+            )
+            for v in ['div', 'vimfd']
+            for date in sel_dates
+        }
+        return inputs
+
+    @staticmethod
+    def rule_outputs(cov):
+        return {
+            'fig1': (
+                PATHS['figdir']
+                / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
+                / f'fig_era5_corr1.{cov}.png'
+            ),
+            'fig2': (
+                PATHS['figdir']
+                / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
+                / f'fig_era5_corr2.{cov}.png'
+            ),
+        }
+        return outputs
+
+    var_matrix = {
+        'cov': ['quick', 'full'],
+    }
+
+
+    def rule_run(self):
+        ds = xr.open_mfdataset(self.inputs.values()).load()
+        print(ds)
+        df_data = {}
+        for var in ['vertically_integrated_moisture_flux_div'] + DIV_ERA5VARS:
+            data_array = ds[var]
+            if var == 'vertically_integrated_moisture_flux_div':
+                data_array = -data_array * 1e4
+                label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+            elif var in DIV_ERA5VARS:
+                if var.startswith('div'):
+                    data_array = -data_array * 1e5
+                else:
+                    data_array = -data_array
+                label = get_labels(var)
+            varname = label[: label.find('(')].strip()
+            df_data[varname] = data_array.values.flatten()
+        df = pd.DataFrame(df_data)
+        print(df)
+
+        div_vars = [
+            f'{method} {plev} hPa'
+            for method in ['conv. at', 'VI conv. surf. to']
+            for plev in [850, 700, 600]
+        ]
+        g = sns.PairGrid(df, y_vars=['MFC'], x_vars=['conv. at 850 hPa', 'VI conv. surf. to 700 hPa'])
+        def hexbin(x, y, color, max_series=None, min_series=None, **kwargs):
+            # cmap = sns.light_palette(color, as_cmap=True)
+            ax = plt.gca()
+            lr = linregress(x, y)
+            xmin, xmax = min_series[x.name], max_series[x.name]
+            ymin, ymax = min_series[y.name], max_series[y.name]
+            lrx = np.array([xmin, xmax])
+            lry = lr.slope * lrx + lr.intercept
+
+            plt.hexbin(x, y, gridsize=25, extent=[xmin, xmax, ymin, ymax], **kwargs)
+            label = f'slope: {lr.slope:.2f}\nintercept: {lr.intercept:.2f}\nr$^2$: {lr.rvalue**2:.2f}\np: {lr.pvalue:.2f}'
+            plt.plot(lrx, lry, 'k--', label=label)
+            #print(x.name, y.name)
+            #print(label)
+            # ax.legend() # <- does nothing for some reason.
+
+        # g.map_diag(sns.histplot, element='poly', log_scale=(None, True))
+        # g.map_offdiag(hexbin, max_series=df.max(), min_series=df.min(), norm=LogNorm())
+        g.map(hexbin, max_series=df.quantile(0.0001), min_series=df.quantile(0.9999), norm=LogNorm())
+        plt.show()
+        plt.savefig(self.outputs['fig1'])
+
+        corr = df[['MFC'] + div_vars].corr()
+        print(corr)
+
+        fig, ax = plt.subplots(1, 1, layout='constrained')
+        sns.heatmap(corr, ax=ax, cmap='coolwarm', annot=True, fmt='.2f', vmin=-1, vmax=1)
+        ax.set_aspect(1)
+        plt.savefig(self.outputs['fig2'])
 

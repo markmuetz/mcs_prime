@@ -786,3 +786,30 @@ class PlotERA5Correlation(TaskRule):
         ax.set_aspect(1)
         plt.savefig(self.outputs['fig2'])
 
+
+class PlotLatTbThresh(TaskRule):
+    rule_inputs = {
+        f'pixel_{d}': (
+            PATHS['datadir'] / 'MCS_Global/mcstracking/' /
+            f'20200101.0000_20210101.0000/2020/{d.month:02d}/{d.day:02d}/mcstrack_2020{d.month:02d}{d.day:02d}_{d.hour:02d}30.nc'
+        )
+        for d in dates
+    }
+    rule_outputs = {
+        f'fig': PATHS['figdir'] / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs' / 'fig_lat_tb_thresh.png'
+    }
+
+    def rule_run(self):
+        datb = xr.open_mfdataset(self.inputs.values()).tb.load()
+
+        datb_ccs_lat = (datb <= 241).mean(dim=['time', 'lon'])
+        datb_core_lat = (datb <= 225).mean(dim=['time', 'lon'])
+
+        plt.figure(figsize=(8, 8))
+        plt.plot(datb_ccs_lat * np.cos(datb_ccs_lat.lat * np.pi / 180), datb_ccs_lat.lat, label='CCS (< 241 K)')
+        plt.plot(datb_core_lat * np.cos(datb_core_lat.lat * np.pi / 180), datb_core_lat.lat, label='core (< 225 K)')
+        plt.ylabel('Latitude (°)')
+        plt.xlabel('% time above threshold')
+        plt.legend()
+
+        plt.savefig(self.outputs['fig'])

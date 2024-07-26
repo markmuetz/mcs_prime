@@ -1052,7 +1052,7 @@ def plot_hist(ds, ax=None, reg='all', var='cape', s=None, log=True):
     _plot_hist(ds, ax, d2, 'r--', 'MCS shield')
     _plot_hist(ds, ax, d3, 'b-', 'non-MCS core')
     _plot_hist(ds, ax, d4, 'b--', 'non-MCS shield')
-    _plot_hist(ds, ax, d5, 'k-', 'env')
+    _plot_hist(ds, ax, d5, 'k-', 'high-cloud-free')
     _plot_hist(ds, ax, dt, 'k:', 'total')
     if log:
         ax.set_yscale('log')
@@ -1081,7 +1081,7 @@ def plot_hist_probs(ds, ax=None, reg='all', var='cape', s=None):
     ax.plot(x, probs[1][s], 'r--', label='MCS shield')
     ax.plot(x, probs[2][s], 'b-', label='non-MCS core')
     ax.plot(x, probs[3][s], 'b--', label='non-MCS shield')
-    ax.plot(x, probs[4][s], 'k-', label='env')
+    ax.plot(x, probs[4][s], 'k-', label='high-cloud-free')
 
 
 def plot_combined_hists_for_var(ax0, ax1, ds, var):

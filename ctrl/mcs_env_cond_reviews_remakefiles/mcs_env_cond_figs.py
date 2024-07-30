@@ -66,6 +66,22 @@ STANDARD_E5VARS = [
     *DIV_ERA5VARS,
 ]
 print(STANDARD_E5VARS)
+ORIG_STANDARD_E5VARS = [
+    'cape',
+    'cin',
+    'tcwv',
+    'shear_0',
+    # 'shear_1', # Least interesting/quite close to LLS (shear_0)
+    'shear_2',
+    'shear_3',
+    'RHlow',
+    'RHmid',
+    'vertically_integrated_moisture_flux_div',
+    'delta_3h_cape',
+    'delta_3h_tcwv',
+    'theta_e_mid',
+]
+
 
 def cm_to_inch(*args):
     return [v / 2.54 for v in args]
@@ -124,7 +140,7 @@ def plot_grouped_precursor_mean_val(ax, grouped_data_dict, show_spread=False):
     ax.set_xlim(xvals[0], xvals[-1])
 
 
-def build_track_filters(tracks, nat_vs_all=False, combine_eq_tropics=False, thresh_land=0.5, thresh_sea=0.5):
+def build_track_filters(tracks, nat_vs_all=False, combine_eq_tropics=False, thresh_land=0.5, thresh_sea=0.5, land_coast_sea=False):
     print('  natural')
     # Only include "natural" MCSs - those that do not form by splitting from an existing one.
     # Note, the number of natural MCSs is taken as the baseline for working out
@@ -161,12 +177,20 @@ def build_track_filters(tracks, nat_vs_all=False, combine_eq_tropics=False, thre
             'extratropics': (mean_lat > 30) | (mean_lat < -30),
         }
 
-    print('  land-sea')
     mean_landfrac = np.nanmean(tracks.dstracks.pf_landfrac.values, axis=1)
-    filter_vals['land-sea'] = {
-        'sea': mean_landfrac <= thresh_sea,
-        'land': mean_landfrac > thresh_land,
-    }
+    if land_coast_sea:
+        print('  land-coast-sea')
+        filter_vals['land-sea'] = {
+            'sea': mean_landfrac <= thresh_sea,
+            'coast': (mean_landfrac > thresh_sea) & (mean_landfrac <= thresh_land),
+            'land': mean_landfrac > thresh_land,
+        }
+    else:
+        print('  land-sea')
+        filter_vals['land-sea'] = {
+            'sea': mean_landfrac <= thresh_sea,
+            'land': mean_landfrac > thresh_land,
+        }
 
     # Build combinartorial product of filters.
     # E.g. first and second items could be:
@@ -231,7 +255,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
                 'fig': (
                     PATHS['figdir']
                     / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
-                    / f'combined_filtered_mcs_local_env_precursor_mean_{ystr}.radius-{radius}.pdf'
+                    / f'combined_filtered_mcs_local_env_precursor_mean_{ystr}.radius-{radius}.png'
                 )
             }
         else:
@@ -239,7 +263,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
                 'fig': (
                     PATHS['figdir']
                     / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
-                    / f'combined_filtered_mcs_local_env_precursor_mean_{ystr}.radius-{radius}.{mode}.pdf'
+                    / f'combined_filtered_mcs_local_env_precursor_mean_{ystr}.radius-{radius}.{mode}.png'
                 )
             }
 
@@ -255,6 +279,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
 
     def rule_run(self):
         print('Open datasets')
+
         ds_full = xr.open_mfdataset(
             [p for k, p in self.inputs.items() if k.startswith('mcs_local_env_')],
             # I used this originally, because it was used in Zhe Feng's code.
@@ -390,6 +415,165 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
         plt.savefig(self.outputs[f'fig'])
 
 
+class PlotCoastalCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
+    """Used for fig02.pdf, supp_fig02.pdf
+
+    Plot the composite local envs for MCSs over their lifetimes.
+    i.e. from 24 h before MCS init (technically DCI), to 72 h after.
+    Only natural MCSs.
+    Split by lat band, land-sea.
+    Use standard vars."""
+
+    @staticmethod
+    def rule_inputs(years, radius, mode):
+        inputs = {}
+        for year in years:
+            inputs.update(
+                {
+                    f'mcs_local_env_{year}_{month}': fmtp(cu.FMT_PATH_LIFECYCLE_MCS_LOCAL_ENV, year=year, month=month)
+                    for month in cu.MONTHS
+                }
+            )
+            inputs[f'tracks_{year}'] = cu.fmt_mcs_stats_path(year)
+        return inputs
+
+    @staticmethod
+    def rule_outputs(years, radius, mode):
+        ystr = cu.fmt_ystr(years)
+        if mode == 'natural':
+            return {
+                'fig': (
+                    PATHS['figdir']
+                    / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
+                    / f'combined_filtered_mcs_local_env_precursor_mean_{ystr}.radius-{radius}.pdf'
+                )
+            }
+        else:
+            return {
+                'fig': (
+                    PATHS['figdir']
+                    / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
+                    / f'combined_filtered_mcs_local_env_precursor_mean_{ystr}.radius-{radius}.{mode}.pdf'
+                )
+            }
+
+    depends_on = [
+        plot_grouped_precursor_mean_val,
+    ]
+
+    var_matrix = {
+        'years': [[2020]],
+        'radius': [200],
+        'mode': ['land_coast_sea'],
+    }
+
+    def rule_run(self):
+        print('Open datasets')
+        ds_full = xr.open_mfdataset(
+            [p for k, p in self.inputs.items() if k.startswith('mcs_local_env_')], combine='nested', concat_dim='tracks'
+        )
+        ds_full['tracks'] = np.arange(0, ds_full.dims['tracks'], 1, dtype=int)
+        print(ds_full)
+
+        tracks_paths = [p for k, p in self.inputs.items() if k.startswith('tracks_')]
+        tracks = McsTracks.mfopen(tracks_paths, None)
+        print(tracks.dstracks)
+
+        # Build filters. Each is determined by the MCS tracks dataset and applied
+        # to the data in ds_full.
+        print('Build filters')
+        nat_vs_all = self.mode == 'nat_vs_all'
+        if self.mode == 'land_coast_sea':
+            filter_vals, filter_key_combinations, natural = build_track_filters(
+                tracks, land_coast_sea=True, thresh_land=0.6, thresh_sea=0.4, combine_eq_tropics=True,
+            )
+            nat_eq_tropics = natural & filter_vals['equator-tropics-extratropics']['equatorial-tropics']
+        else:
+            filter_vals, filter_key_combinations, natural = build_track_filters(tracks, nat_vs_all=nat_vs_all)
+
+        n_hours = 73
+        # Set up the figure (using seaborn theming).
+        sns.set_theme(palette='deep')
+        sns.set_style('ticks')
+        sns.set_context('paper')
+        fig, axes = plt.subplots(4, 3, layout='constrained', sharex=True)
+        fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, 0.6 * SUBFIG_SQ_SIZE * 4))
+
+        # N.B. works even when only one key, as just gets 1 from 2nd list.
+        linewidths = dict(zip(filter_vals['natural'].keys(), [1, 2.5]))
+        # Colours determined by eq-trop-ET.
+        colours = dict(
+            zip(filter_vals['equator-tropics-extratropics'].keys(), plt.rcParams['axes.prop_cycle'].by_key()['color'])
+        )
+        # Linestyles determined by land-sea.
+        if self.mode == 'land_coast_sea':
+            linestyles = dict(zip(filter_vals['land-sea'].keys(), ['-', ':', '--']))
+        else:
+            linestyles = dict(zip(filter_vals['land-sea'].keys(), ['-', '--']))
+
+        for i, (ax, var) in enumerate(zip(axes.flatten(), ORIG_STANDARD_E5VARS)):
+            print(var)
+            data_array = ds_full[f'mean_{var}'].sel(radius=self.radius).isel(times=slice(0, n_hours)).load()
+
+            if var == 'vertically_integrated_moisture_flux_div':
+                data_array = -data_array * 1e4
+                ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+            else:
+                ylabel = get_labels(var)
+
+            grouped_data_dict = {'xvals': range(-24, -24 + n_hours)}
+            # Apply filters.
+            for filter_keys in filter_key_combinations:
+                full_filter = gen_full_filter(filter_vals, filter_keys)
+
+                plot_kwargs = {
+                    'linewidth': linewidths[filter_keys[0]],
+                    'color': colours[filter_keys[1]],
+                    'linestyle': linestyles[filter_keys[2]],
+                }
+                percentage = full_filter.sum() / nat_eq_tropics.sum() * 100
+                label = ' '.join(filter_keys[1:]) + f' ({percentage:.1f}%)'
+                grouped_data_dict[label] = {
+                    'data_array': data_array.isel(tracks=full_filter),
+                    'ylabel': ylabel,
+                    'plot_kwargs': plot_kwargs,
+                }
+
+            plot_grouped_precursor_mean_val(ax, grouped_data_dict)
+
+            # Plot the full data.
+            plot_kwargs = {
+                'color': 'k',
+                'linestyle': ':',
+            }
+            grouped_data_dict = {'xvals': range(-24, -24 + n_hours)}
+            total = nat_eq_tropics.sum()
+            all_name = f'all ({total} tracks)'
+            grouped_data_dict[all_name] = {
+                'data_array': data_array.isel(tracks=nat_eq_tropics),
+                'ylabel': ylabel,
+                'plot_kwargs': plot_kwargs,
+            }
+            plot_grouped_precursor_mean_val(ax, grouped_data_dict)
+
+            # Apply a nice title for each ax.
+            c = string.ascii_lowercase[i]
+            # Saves space to put units in title, also avoids awkard problem of
+            # positioning ylabel due to different widths of numbers for e.g. 1.5 vs 335
+            ax.set_title(f'{c}) {ylabel}', loc='left')
+            ax.axvline(x=0, color='k')
+            ax.grid(ls='--', lw=0.5)
+
+        # Set some figure-wide text.
+        # ncols = 3 if nat_vs_all else 2
+        ncol = 1
+        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.5, 1.02), framealpha=1, ncol=ncol)
+        axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
+        # handles, labels = axes[0, 0].get_legend_handles_labels()
+        # fig.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.0, 1.0), framealpha=1)
+        plt.savefig(self.outputs[f'fig'])
+
+
 class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
     """Used for fig03.pdf
 
@@ -422,7 +606,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
         return {
             'fig': (
                 PATHS['figdir'] / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs' /
-                f'combined_filtered_radius_mcs_local_env_precursor_mean_{ystr}.pdf'
+                f'combined_filtered_radius_mcs_local_env_precursor_mean_{ystr}.png'
             )
         }
 
@@ -438,6 +622,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
 
     def rule_run(self):
         print('Open datasets')
+
         ds_full = xr.open_mfdataset(
             [p for k, p in self.inputs.items() if k.startswith('mcs_local_env_')],
             # I used this originally, because it was used in Zhe Feng's code.
@@ -550,19 +735,19 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
         **{f'fig_{t}': (
             PATHS['figdir']
             / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
-            / f'corr_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.pdf'
+            / f'corr_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.png'
         )
         for t in CORR_TIMES},
         **{f'fig2_{t}': (
             PATHS['figdir']
             / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
-            / f'sel_corr_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.pdf'
+            / f'sel_corr_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.png'
         )
         for t in CORR_TIMES},
         **{f'fig3_{t}': (
             PATHS['figdir']
             / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
-            / f'corr2_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.pdf'
+            / f'corr2_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.png'
         )
         for t in CORR_TIMES}
     }
@@ -580,6 +765,7 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
 
     def rule_run(self):
         e5vars = cu.EXTENDED_ERA5VARS + DIV_ERA5VARS
+
         print('Open datasets')
         ds_full = xr.open_mfdataset(
             [p for k, p in self.inputs.items() if k.startswith('mcs_local_env_')],
@@ -690,6 +876,7 @@ day_range = [
 dates = pd.DatetimeIndex(pd.concat([pd.Series(dti) for dti in day_range]))
 
 class PlotERA5Correlation(TaskRule):
+    enabled = False
     @staticmethod
     def rule_inputs(cov):
         basedir = f'/gws/nopw/j04/mcs_prime/mmuetz/data/mcs_prime_output/era5_processed/'
@@ -733,6 +920,7 @@ class PlotERA5Correlation(TaskRule):
     def rule_run(self):
         ds = xr.open_mfdataset(self.inputs.values()).load()
         print(ds)
+
         df_data = {}
         for var in ['vertically_integrated_moisture_flux_div'] + DIV_ERA5VARS:
             data_array = ds[var]

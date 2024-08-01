@@ -1,4 +1,4 @@
-"""All figure plotting code for https://github.com/markmuetz/MCS_env_cond
+"""Figure plotting for response to reviewers.
 
 "Environmental Conditions Affecting Global Mesoscale Convective System Occurrence"
 JAS 2024.
@@ -6,10 +6,6 @@ JAS 2024.
 Terminology:
 * natural MCS: MCS that has not formed from a prev MCS split.
 * MCS regions: 5 MCS regions: MCS core, MCS shield, non-MCS core, non-MCS shield, environment.
-
-My biggest regret with this code is not splitting the processing from the plotting.
-I.e. they are done together in one task. This means it can take a long time (hours) to produce one fig.
-Not ideal! Unfortunately it is not straightforward to separate the processing/plotting code.
 """
 from itertools import product
 from pathlib import Path
@@ -53,8 +49,6 @@ FMT_PATH_MCS_ENV_COND_REVS_LIFECYCLE_MCS_LOCAL_ENV = (
 
 SUBFIG_SQ_SIZE = 9  # cm
 
-# This are the years 2001-2020, skipping 2003-6 (as in Feng et al. 2021).
-YEARS = cu.YEARS
 
 STANDARD_E5VARS = [
     'cape',
@@ -574,11 +568,10 @@ class PlotCoastalCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
         plt.savefig(self.outputs[f'fig'])
 
 
-class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
-    """Used for fig03.pdf
+class PlotMcsLocalEnvPrecursorMFC_RH_conv(TaskRule):
+    """
 
-    Similar to fig02.pdf, but combine equatorial/tropical MCSs, and show different spatial scales in one fig."""
-    # enabled = False
+    """
     @staticmethod
     def rule_inputs(years):
         # WARNING: It's important to get the ordering right here.
@@ -606,7 +599,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
         return {
             'fig': (
                 PATHS['figdir'] / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs' /
-                f'combined_filtered_radius_mcs_local_env_precursor_mean_{ystr}.png'
+                f'combined_filtered_radius_mcs_local_env_precursor_mean_{ystr}.pdf'
             )
         }
 
@@ -650,9 +643,10 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
         fig, axes = plt.subplots(nrows, 3, layout='constrained', sharex=True)
         fudge_factor = 0.6
         fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * nrows * fudge_factor))
-        for ax in axes.flatten()[[1, 2]]:
-            ax.axis('off')
-        flat_axes = axes.flatten()[[0, 3, 4, 5, 6, 7, 8]]  # 7 ax.
+        # for ax in axes.flatten()[[1, 2]]:
+        #     ax.axis('off')
+        # flat_axes = axes.flatten()[[0, 3, 4, 5, 6, 7, 8]]  # 7 ax.
+        flat_axes = axes.flatten()  # 9 ax
 
         radii = [100, 200, 500, 1000]
         colour_vals = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -660,7 +654,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
         colours = dict(zip(radii, bgor))
         linestyles = dict(zip(filter_vals['land-sea'].keys(), ['-', '--']))
 
-        for i, (ax, var) in enumerate(zip(flat_axes, ['vertically_integrated_moisture_flux_div'] + DIV_ERA5VARS)):
+        for i, (ax, var) in enumerate(zip(flat_axes, ['vertically_integrated_moisture_flux_div', 'RHlow', 'RHmid'] + DIV_ERA5VARS)):
             print(var)
             grouped_data_dict = {'xvals': range(-24, -24 + N)}
             for filter_keys in filter_key_combinations:
@@ -706,14 +700,14 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
             ax.axvline(x=0, color='k')
             ax.grid(ls='--', lw=0.5)
 
-        axes[1, -1].legend(loc='lower left', bbox_to_anchor=(0.8, 0), framealpha=1)
+        axes[0, -1].legend(loc='lower left', bbox_to_anchor=(0.8, 0), framealpha=1)
         axes[-1, 1].set_xlabel('time from MCS initiation (hr)')
         plt.savefig(self.outputs[f'fig'])
 
 
-CORR_TIMES = [-24, -10, -5, 0, 5, 10]
+CORR_TIMES = [0]
 class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
-    """Used for supp_fig01.pdf"""
+    """Used for supp_fig04.pdf"""
 
     @staticmethod
     def rule_inputs(year, decomp_mode, radius):
@@ -735,7 +729,7 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
         **{f'fig_{t}': (
             PATHS['figdir']
             / 'mcs_env_cond_reviews' / 'mcs_env_cond_figs'
-            / f'corr_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.png'
+            / f'full_corr_mcs_local_env_precursor_mean_{{year}}.decomp-{{decomp_mode}}.radius-{{radius}}.t={t}.png'
         )
         for t in CORR_TIMES},
         **{f'fig2_{t}': (
@@ -843,7 +837,7 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                         for plev in [850, 700, 600]
                     ]
 
-                    corr = df[['MFC'] + div_vars].corr()
+                    corr = df[['MFC', 'RHlow', 'RHmid'] + div_vars].corr()
                 print(corr)
                 sns.heatmap(corr, ax=ax, cmap='coolwarm', annot=True, fmt='.2f', vmin=-1, vmax=1)
                 ax.set_aspect(1)
@@ -856,15 +850,40 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                 else:
                     plt.savefig(self.outputs[f'fig2_{t}'])
 
-            g = sns.PairGrid(df, y_vars=['MFC'], x_vars=['conv. at 850 hPa', 'VI conv. surf. to 700 hPa'])
-            def hexbin(x, y, color, max_series=None, min_series=None, **kwargs):
-                # cmap = sns.light_palette(color, as_cmap=True)
-                ax = plt.gca()
+            # g = sns.PairGrid(df, y_vars=['MFC'], x_vars=['RHlow', 'RHmid', 'conv. at 850 hPa', 'VI conv. surf. to 700 hPa'])
+            # def hexbin(x, y, color, max_series=None, min_series=None, **kwargs):
+            #     # cmap = sns.light_palette(color, as_cmap=True)
+            #     ax = plt.gca()
+            #     xmin, xmax = min_series[x.name], max_series[x.name]
+            #     ymin, ymax = min_series[y.name], max_series[y.name]
+            #     plt.hexbin(x, y, gridsize=25, extent=[xmin, xmax, ymin, ymax], **kwargs)
+
+            # g.map(hexbin, max_series=df.max(), min_series=df.min(), norm=LogNorm())
+            # plt.savefig(self.outputs[f'fig3_{t}'])
+
+            x_vars = ['RHlow', 'RHmid', 'conv. at 850 hPa', 'VI conv. surf. to 700 hPa']
+            def hexbin(ax, x, y, max_series=None, min_series=None, **kwargs):
+                lr = linregress(x, y)
                 xmin, xmax = min_series[x.name], max_series[x.name]
                 ymin, ymax = min_series[y.name], max_series[y.name]
-                plt.hexbin(x, y, gridsize=25, extent=[xmin, xmax, ymin, ymax], **kwargs)
+                lrx = np.array([xmin, xmax])
+                lry = lr.slope * lrx + lr.intercept
 
-            g.map(hexbin, max_series=df.max(), min_series=df.min(), norm=LogNorm())
+                hb = ax.hexbin(x, y, gridsize=25, extent=[xmin, xmax, ymin, ymax], **kwargs)
+                label = f'slope: {lr.slope:.2f}\nintercept: {lr.intercept:.2f}\nr$^2$: {lr.rvalue**2:.2f}\np: {lr.pvalue:.2f}'
+                ax.plot(lrx, lry, 'k--', label=label)
+                ax.legend(loc='upper left')
+                return hb
+
+            cmap = sns.color_palette("rocket", as_cmap=True)
+            max_series = df.max()
+            min_series = df.min()
+            fig, axes = plt.subplots(1, 4, sharey=True, layout='constrained', figsize=(14, 3))
+            for ax, var in zip(axes.flatten(), x_vars):
+                hb = hexbin(ax, df[var], df.MFC, max_series=max_series, min_series=min_series, norm=LogNorm(), cmap=cmap)
+                ax.set_xlabel(var)
+            axes[0].set_ylabel('MFC')
+            plt.colorbar(hb, ax=axes)
             plt.savefig(self.outputs[f'fig3_{t}'])
 
 
@@ -876,7 +895,6 @@ day_range = [
 dates = pd.DatetimeIndex(pd.concat([pd.Series(dti) for dti in day_range]))
 
 class PlotERA5Correlation(TaskRule):
-    enabled = False
     @staticmethod
     def rule_inputs(cov):
         basedir = f'/gws/nopw/j04/mcs_prime/mmuetz/data/mcs_prime_output/era5_processed/'
@@ -891,7 +909,7 @@ class PlotERA5Correlation(TaskRule):
                 f'{date.year}/{date.month:02d}/01/' +
                 f'ecmwf-era5_oper_an_ml_{date.year}{date.month:02d}01{date.hour:02d}00.proc_{v}.nc'
             )
-            for v in ['div', 'vimfd']
+            for v in ['div', 'vimfd', 'layer_means']
             for date in sel_dates
         }
         return inputs
@@ -913,16 +931,18 @@ class PlotERA5Correlation(TaskRule):
         return outputs
 
     var_matrix = {
+        # 'cov': ['quick'],
         'cov': ['quick', 'full'],
     }
 
+    config = {'slurm': {'mem': 512000, 'partition': 'high-mem', 'max_runtime': '24:00:00', 'account': None}}
 
     def rule_run(self):
         ds = xr.open_mfdataset(self.inputs.values()).load()
         print(ds)
 
         df_data = {}
-        for var in ['vertically_integrated_moisture_flux_div'] + DIV_ERA5VARS:
+        for var in ['vertically_integrated_moisture_flux_div', 'RHlow', 'RHmid'] + DIV_ERA5VARS:
             data_array = ds[var]
             if var == 'vertically_integrated_moisture_flux_div':
                 data_array = -data_array * 1e4
@@ -933,40 +953,55 @@ class PlotERA5Correlation(TaskRule):
                 else:
                     data_array = -data_array
                 label = get_labels(var)
+            else:
+                label = get_labels(var)
+
             varname = label[: label.find('(')].strip()
             df_data[varname] = data_array.values.flatten()
         df = pd.DataFrame(df_data)
         print(df)
 
-        div_vars = [
-            f'{method} {plev} hPa'
-            for method in ['conv. at', 'VI conv. surf. to']
-            for plev in [850, 700, 600]
-        ]
-        g = sns.PairGrid(df, y_vars=['MFC'], x_vars=['conv. at 850 hPa', 'VI conv. surf. to 700 hPa'])
-        def hexbin(x, y, color, max_series=None, min_series=None, **kwargs):
+        # g = sns.PairGrid(df, y_vars=['MFC'], x_vars=['RHlow', 'RHmid', 'conv. at 850 hPa', 'VI conv. surf. to 700 hPa'])
+        x_vars = ['RHlow', 'RHmid', 'conv. at 850 hPa', 'VI conv. surf. to 700 hPa']
+        def hexbin(ax, x, y, max_series=None, min_series=None, **kwargs):
             # cmap = sns.light_palette(color, as_cmap=True)
-            ax = plt.gca()
+            # ax = plt.gca()
             lr = linregress(x, y)
             xmin, xmax = min_series[x.name], max_series[x.name]
             ymin, ymax = min_series[y.name], max_series[y.name]
             lrx = np.array([xmin, xmax])
             lry = lr.slope * lrx + lr.intercept
 
-            plt.hexbin(x, y, gridsize=25, extent=[xmin, xmax, ymin, ymax], **kwargs)
+            hb = ax.hexbin(x, y, gridsize=25, extent=[xmin, xmax, ymin, ymax], **kwargs)
             label = f'slope: {lr.slope:.2f}\nintercept: {lr.intercept:.2f}\nr$^2$: {lr.rvalue**2:.2f}\np: {lr.pvalue:.2f}'
-            plt.plot(lrx, lry, 'k--', label=label)
+            ax.plot(lrx, lry, 'k--', label=label)
             #print(x.name, y.name)
             #print(label)
-            # ax.legend() # <- does nothing for some reason.
+            ax.legend(loc='upper left')
+            return hb
+
+        cmap = sns.color_palette("rocket", as_cmap=True)
+        max_series = df.quantile(0.0001)
+        min_series = df.quantile(0.9999)
+        fig, axes = plt.subplots(1, 4, sharey=True, layout='constrained', figsize=(14, 3))
+        for ax, var in zip(axes.flatten(), x_vars):
+            hb = hexbin(ax, df[var], df.MFC, max_series=max_series, min_series=min_series, norm=LogNorm(), cmap=cmap)
+            ax.set_xlabel(var)
+        axes[0].set_ylabel('MFC')
+        plt.colorbar(hb, ax=axes)
+        plt.savefig(self.outputs['fig1'])
+
 
         # g.map_diag(sns.histplot, element='poly', log_scale=(None, True))
         # g.map_offdiag(hexbin, max_series=df.max(), min_series=df.min(), norm=LogNorm())
-        g.map(hexbin, max_series=df.quantile(0.0001), min_series=df.quantile(0.9999), norm=LogNorm())
-        plt.show()
-        plt.savefig(self.outputs['fig1'])
+        # g.map(hexbin, max_series=df.quantile(0.0001), min_series=df.quantile(0.9999), norm=LogNorm())
 
-        corr = df[['MFC'] + div_vars].corr()
+        div_vars = [
+            f'{method} {plev} hPa'
+            for method in ['conv. at', 'VI conv. surf. to']
+            for plev in [850, 700, 600]
+        ]
+        corr = df[['MFC', 'RHlow', 'RHmid'] + div_vars].corr()
         print(corr)
 
         fig, ax = plt.subplots(1, 1, layout='constrained')

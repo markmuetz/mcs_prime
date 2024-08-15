@@ -14,15 +14,17 @@ rmk = Remake(config=dict(slurm=slurm_config, content_checks=False))
 
 # SUITES = ['u-cv415']
 # SUITES = ['u-dg040', 'u-dg041', 'u-dg042']
-SUITES = ['u-dg041', 'u-dg042']
+# SUITES = ['u-dg041', 'u-dg042']
 #
-PP_DIRS = [
-    DATADIR / 'UM_sims' / suite
-    for suite in SUITES
-]
-# PP_DIRS = []
+# PP_DIRS = [
+#     DATADIR / 'UM_sims' / suite
+#     for suite in SUITES
+# ]
+PP_DIRS = []
 # /gws/nopw/j04/mcs_prime/mmuetz/data/UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em0
-# PP_DIRS.extend([DATADIR / f'UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em{i}' for i in range(8)])
+PP_DIRS.extend([DATADIR / f'UM_sims/u-dg135/share/cycle/20200701T0000Z/engl/um/em{i}' for i in range(10)])
+PP_DIRS.extend([DATADIR / f'UM_sims/u-di728/share/cycle/20200701T0000Z/engl/um/em{i}' for i in range(10)])
+PP_DIRS.extend([DATADIR / f'UM_sims/u-di727/share/cycle/20200701T0000Z/engl/um/em{i}' for i in range(10)])
 # PP_DIRS.extend([DATADIR / f'UM_sims/zhixiao_mirror/ens_um/pa_um_off'])
 # PP_DIRS.extend([DATADIR / f'UM_sims/zhixiao_mirror/ens_um_corrected/pa_um_on'])
 
@@ -34,7 +36,7 @@ def pp_to_converted(pp_path, converter):
 def ls_pp_paths(pp_dir, converter):
     pp_paths = sorted(pp_dir.glob(f'*.pp'))
     ff_paths = sorted([ff for ff in pp_dir.glob('*') if ff.suffix == ''])
-    print(ff_paths)
+    # print(ff_paths)
     pp_paths.extend(ff_paths)
     out_paths = [pp_to_converted(p, converter) for p in pp_paths]
     return pp_paths, out_paths, [o.exists() for o in out_paths]

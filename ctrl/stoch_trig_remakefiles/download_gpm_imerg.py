@@ -33,7 +33,7 @@ YEARS = range(2020, 2021)
 MONTHS = [6]
 
 start_date = '2020-07-01'
-end_date = '2020-07-03'
+end_date = '2020-07-11'
 
 # Create the date range
 date_range = pd.date_range(start=start_date, end=end_date)

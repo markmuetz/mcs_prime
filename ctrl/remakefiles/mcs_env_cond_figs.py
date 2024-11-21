@@ -72,8 +72,8 @@ def get_labels(var):
         'shear_2': 'M2HS (m s$^{-1}$)',
         'shear_3': 'DS (m s$^{-1}$)',
         'theta_e_mid': r'$\theta_e$mid (K)',
-        'RHlow': 'RHlow (-)',
-        'RHmid': 'RHmid (-)',
+        'RHlow': 'RHlow (%)',
+        'RHmid': 'RHmid (%)',
         'delta_3h_cape': r'$\Delta$ 3h CAPE (J kg$^{-1}$)',
         'delta_3h_tcwv': r'$\Delta$ 3h TCWV (mm)',
         'div_ml114': 'conv. at 850 hPa (10$^{-5}$ s$^{-1}$)',
@@ -353,6 +353,9 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFiltered(TaskRule):
             if var == 'vertically_integrated_moisture_flux_div':
                 data_array = -data_array * 1e4
                 ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+            elif var.startswith('RH'):
+                data_array = data_array * 100
+                ylabel = get_labels(var)
             else:
                 ylabel = get_labels(var)
 
@@ -521,6 +524,9 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadius(TaskRule):
                     if var == 'vertically_integrated_moisture_flux_div':
                         data_array = -data_array * 1e4
                         ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                    elif var.startswith('RH'):
+                        data_array = data_array * 100
+                        ylabel = get_labels(var)
                     else:
                         ylabel = get_labels(var)
 
@@ -629,6 +635,8 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadiusRatio(TaskRule):
                 data_array_100 = data_array_100_full.isel(tracks=full_filter)
                 if var == 'vertically_integrated_moisture_flux_div':
                     data_array_100 = -data_array_100 * 1e4
+                elif var.startswith('RH'):
+                    data_array_100 = data_array_100 * 100
 
                 for radius in radii:
                     data_array = ds_full[f'mean_{var}'].sel(radius=radius).isel(times=slice(0, N)).load()
@@ -638,6 +646,9 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadiusRatio(TaskRule):
                     if var == 'vertically_integrated_moisture_flux_div':
                         data_array = -data_array * 1e4
                         ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                    elif var.startswith('RH'):
+                        data_array = data_array * 100
+                        ylabel = get_labels(var)
                     else:
                         ylabel = get_labels(var)
 
@@ -667,7 +678,7 @@ class PlotCombinedMcsLocalEnvPrecursorMeanValueFilteredRadiusRatio(TaskRule):
 
 
 class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
-    """Used for fig04.pdf, fig05.pdf, supp_fig04.pdf, supp_fig05.pdf, supp_fig06.pdf
+    """Used for fig04.pdf, fig05.pdf, supp_fig06.pdf, supp_fig07.pdf, supp_fig08.pdf
 
     As fig02.pdf, fig03.pdf, but just for one (each) variable at a time.
     Each combination of lat band/land-sea gets its own ax.
@@ -772,6 +783,9 @@ class PlotIndividualMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
             if var == 'vertically_integrated_moisture_flux_div':
                 data_array = -data_array * 1e4
                 ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+            elif var.startswith('RH'):
+                data_array = data_array * 100
+                ylabel = get_labels(var)
             else:
                 ylabel = get_labels(var)
 
@@ -907,9 +921,12 @@ class PlotAllCombinedMcsLocalEnv(TaskRule):
                 vmax = max(np.max(ds_rad[var].values), np.nanmax(ds_rad[f'mcs_local_{var}'].values))
                 diff = (da_var - da_mean).mean(dim='time')
                 # Mask out grid points without much data.
-                masked_diff = np.ma.masked_array(diff.values, mask=mask_sum < 10)
+                # Changed from 10 to 100 to filter out Sahara, Tibetan Plateau, sc zone...
+                masked_diff = np.ma.masked_array(diff.values, mask=mask_sum < 100)
                 if var == 'vertically_integrated_moisture_flux_div':
                     masked_diff *= -1e4
+                elif var.startswith('RH'):
+                    masked_diff *= 100
 
                 # Calculate max/min values so that they contain at least 90% of all points.
                 contain = 90
@@ -955,7 +972,7 @@ class PlotAllCombinedMcsLocalEnv(TaskRule):
 
 
 class PlotGeogNumPoints(TaskRule):
-    """Used for supp_fig07.pdf
+    """Used for supp_fig09.pdf
 
     Plot number of times each grid point is included at each radius from initiation points.
     """
@@ -1047,6 +1064,8 @@ def plot_hist(ds, ax=None, reg='all', var='cape', s=None, log=True):
         h_density = h / (h.sum() * width)
         if var == 'vertically_integrated_moisture_flux_div':
             ax.plot(-ds[f'{var}_hist_mids'].values[s] * 1e4, h_density[s], fmt, label=title)
+        elif var.startswith('RH'):
+            ax.plot(ds[f'{var}_hist_mids'].values[s] * 100, h_density[s], fmt, label=title)
         else:
             ax.plot(ds[f'{var}_hist_mids'].values[s], h_density[s], fmt, label=title)
 
@@ -1083,6 +1102,8 @@ def plot_hist_probs(ds, ax=None, reg='all', var='cape', s=None):
 
     if var == 'vertically_integrated_moisture_flux_div':
         x = -ds[f'{var}_hist_mids'].values[s] * 1e4
+    elif var.startswith('RH'):
+        x = ds[f'{var}_hist_mids'].values[s] * 100
     else:
         x = ds[f'{var}_hist_mids'].values[s]
     ax.plot(x, probs[0][s], 'r-', label='MCS core')
@@ -1101,8 +1122,8 @@ def plot_combined_hists_for_var(ax0, ax1, ds, var):
         'shear_1': ((0, 30), (0, 0.15), 'L2MS'),
         'shear_2': ((0, 30), (0, 0.15), 'M2HS'),
         'shear_3': ((0, 30), (0, 0.15), 'DS'),
-        'RHlow': ((0, 1), (0, 8), 'RHlow'),
-        'RHmid': ((0, 1), (0, 4), 'RHmid'),
+        'RHlow': ((0, 100), (0, 8), 'RHlow'),
+        'RHmid': ((0, 100), (0, 4), 'RHmid'),
         'theta_e_mid': ((300, 360), (0, None), r'$\theta_e$'),
         'vertically_integrated_moisture_flux_div': ((-12, 12), (0, None), 'VIMFD'),
         'delta_3h_cape': ((-300, 300), (0, None), r'\Delta 3h CAPE'),
@@ -1122,7 +1143,7 @@ def plot_combined_hists_for_var(ax0, ax1, ds, var):
 
 
 class PlotCombineVarConditionalERA5Hist(TaskRule):
-    """Used for fig07.pdf, supp_fig08.pdf
+    """Used for fig07.pdf, supp_fig10.pdf
 
     Plot the conitional PDFs and probabilites for each of the 5 MCS regions.
     """
@@ -1184,7 +1205,13 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
                 else:
                     label = get_labels(var)
                 c = string.ascii_lowercase[i]
-                ax0.set_title(f'{c}) {label}', loc='left')
+                varname = label[:label.find('(')].strip()
+                units = label[label.find('(') + 1:-1]
+                ax0.set_title(f'{c}) {varname}', loc='left')
+                ax1.set_xlabel(units)
+                if col_idx == 0:
+                    ax0.set_ylabel('PDF')
+                    ax1.set_ylabel('normalized PDF')
                 ax0.grid(ls='--', lw=0.5)
                 ax1.grid(ls='--', lw=0.5)
 
@@ -1195,6 +1222,7 @@ class PlotCombineVarConditionalERA5Hist(TaskRule):
 
         for ax in axes[::2].flatten():
             ax.set_xticklabels([])
+        fig.align_ylabels(axes[:, 0])
         plt.savefig(self.outputs['fig'])
 
 
@@ -1207,8 +1235,8 @@ def plot_convection_hourly_hists(ds, var, axes=None):
         'shear_1': ((0, 30), (0, 0.15), 'L2MS'),
         'shear_2': ((0, 30), (0, 0.15), 'M2HS'),
         'shear_3': ((0, 30), (0, 0.15), 'DS'),
-        'RHlow': ((0, 1), (0, 8), 'RHlow'),
-        'RHmid': ((0, 1), (0, 4), 'RHmid'),
+        'RHlow': ((0, 100), (0, 8), 'RHlow'),
+        'RHmid': ((0, 100), (0, 4), 'RHmid'),
         'theta_e_mid': ((300, 360), (0, None), r'$\theta_e$'),
         'vertically_integrated_moisture_flux_div': ((-12, 12), (0, None), 'VIMFD'),
         'delta_3h_cape': ((-300, 300), (0, None), r'\Delta 3h CAPE'),
@@ -1234,6 +1262,8 @@ def plot_convection_hourly_hists(ds, var, axes=None):
 
         if var == 'vertically_integrated_moisture_flux_div':
             x = ds[f'{var}_hist_mids'].values * -1e4
+        elif var.startswith('RH'):
+            x = ds[f'{var}_hist_mids'].values * 100
         else:
             x = ds[f'{var}_hist_mids'].values
 
@@ -1257,7 +1287,7 @@ def plot_convection_hourly_hists(ds, var, axes=None):
 
 
 class PlotCombineConvectionConditionalERA5Hist(TaskRule):
-    """Used for fig08.pdf, supp_fig09.pdf, supp_fig11.pdf
+    """Used for fig08.pdf, supp_fig11.pdf, supp_fig13.pdf
 
     As fig07.pdf, but this time just the probability of MCS-type convection given ANY convection."""
 
@@ -1286,10 +1316,10 @@ class PlotCombineConvectionConditionalERA5Hist(TaskRule):
 
     var_matrix = {
         'years': [cu.YEARS, [2020]],
-        # 'core_method': ['tb', 'precip'],
-        'core_method': ['tb'],
-        # 'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
-        'e5vars': ['tcwv-RHmid-vertically_integrated_moisture_flux_div'],
+        'core_method': ['tb', 'precip'],
+        # 'core_method': ['tb'],
+        'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
+        # 'e5vars': ['tcwv-RHmid-vertically_integrated_moisture_flux_div'],
     }
 
     # Running out of time on 4h queue.
@@ -1326,9 +1356,16 @@ class PlotCombineConvectionConditionalERA5Hist(TaskRule):
                 else:
                     label = get_labels(var)
                 c = string.ascii_lowercase[i]
-                ax0.set_title(f'{c}) {label}', loc='left')
+                varname = label[:label.find('(')].strip()
+                # No ()
+                units = label[label.find('(') + 1:-1]
+                ax0.set_title(f'{c}) {varname}', loc='left')
+                ax1.set_xlabel(units)
                 ax0.grid(ls='--', lw=0.5)
                 ax1.grid(ls='--', lw=0.5)
+                if col_idx == 0:
+                    ax0.set_ylabel('p(MCS conv|conv)')
+                    ax1.set_ylabel('pdf')
 
         if self.e5vars == 'all':
             axes[0, 0].legend(loc='lower left', bbox_to_anchor=(0.8, -0.2), framealpha=1)
@@ -1353,8 +1390,8 @@ def plot_gridpoint_3x_lat_band_hist(ax, ds, var):
         'shear_1': ((0, 30), (0, 0.15), 'L2MS'),
         'shear_2': ((0, 30), (0, 0.15), 'M2HS'),
         'shear_3': ((0, 30), (0, 0.15), 'DS'),
-        'RHlow': ((0, 1), (0, 8), 'RHlow'),
-        'RHmid': ((0, 1), (0, 4), 'RHmid'),
+        'RHlow': ((0, 100), (0, 8), 'RHlow'),
+        'RHmid': ((0, 100), (0, 4), 'RHmid'),
         'theta_e_mid': ((300, 360), (0, None), r'$\theta_e$'),
         'vertically_integrated_moisture_flux_div': ((-12, 12), (0, None), 'VIMFD'),
         'delta_3h_cape': ((-300, 300), (0, None), r'\Delta 3h CAPE'),
@@ -1365,6 +1402,8 @@ def plot_gridpoint_3x_lat_band_hist(ax, ds, var):
 
     if var == 'vertically_integrated_moisture_flux_div':
         x = ds[f'{var}_hist_mids'].values * -1e4
+    elif var.startswith('RH'):
+        x = ds[f'{var}_hist_mids'].values * 100
     else:
         x = ds[f'{var}_hist_mids'].values
     lat = ds.latitude.values
@@ -1411,8 +1450,8 @@ class PlotCombineConvectionConditionalLatBandERA5Hist(TaskRule):
         # 'years': [[2020], cu.YEARS],
         'years': [[2020], [2018, 2019, 2020]],
         'years': [[2020], [2018, 2019, 2020], cu.YEARS],
-        # 'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
-        'e5vars': ['tcwv-RHmid-vertically_integrated_moisture_flux_div'],
+        'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
+        # 'e5vars': ['tcwv-RHmid-vertically_integrated_moisture_flux_div'],
     }
 
     # Running out of time on 4h queue.
@@ -1455,8 +1494,11 @@ class PlotCombineConvectionConditionalLatBandERA5Hist(TaskRule):
                     label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
                 else:
                     label = get_labels(var)
+                varname = label[:label.find('(')].strip()
+                units = label[label.find('(') + 1:-1]
                 c = string.ascii_lowercase[i]
-                ax.set_title(f'{c}) {label}', loc='left')
+                ax.set_title(f'{c}) {varname}', loc='left')
+                ax.set_xlabel(units)
                 ax.grid(ls='--', lw=0.5)
 
         if self.e5vars == 'all':
@@ -1544,6 +1586,9 @@ class PlotCorrelationMcsLocalEnvPrecursorMeanValueFilteredDecomp(TaskRule):
                 if var == 'vertically_integrated_moisture_flux_div':
                     data_array = -data_array * 1e4
                     label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                elif var.startswith('RH'):
+                    data_array = data_array * 100
+                    label = get_labels(var)
                 else:
                     label = get_labels(var)
                 varname = label[: label.find('(')].strip()
@@ -1684,7 +1729,7 @@ class GenDataForConvectionConditionalERA5HistSeasonalDC(TaskRule):
 
 
 class FigPlotCombineVarConditionalERA5HistSeasonalDC(TaskRule):
-    """Used for supp_fig10.pdf
+    """Used for supp_fig12.pdf
 
     Heavy lifting is done by GenDataForConvectionConditionalERA5HistSeasonalDC"""
     rule_inputs = GenDataForConvectionConditionalERA5HistSeasonalDC.rule_outputs
@@ -1716,8 +1761,8 @@ class FigPlotCombineVarConditionalERA5HistSeasonalDC(TaskRule):
             'shear_1': (0, 30),
             'shear_2': (0, 30),
             'shear_3': (0, 30),
-            'RHlow': (0, 1),
-            'RHmid': (0, 1),
+            'RHlow': (0, 100),
+            'RHmid': (0, 100),
             'theta_e_mid': (300, 360),
             'vertically_integrated_moisture_flux_div': (-12, 12),
             'delta_3h_cape': (-300, 300),
@@ -1748,6 +1793,8 @@ class FigPlotCombineVarConditionalERA5HistSeasonalDC(TaskRule):
                     prob_key = f'all_{var}_MCS_conv_given_conv_prob_{mode}_data'
                     if var == 'vertically_integrated_moisture_flux_div':
                         x = ds[f'{var}_hist_mids'].values * -1e4
+                    elif var.startswith('RH'):
+                        x = ds[f'{var}_hist_mids'].values * 100
                     else:
                         x = ds[f'{var}_hist_mids'].values
                     p = ax.plot(x, ds_filtered[prob_key].values, color=c)
@@ -1795,11 +1842,12 @@ class FigPlotCombineVarConditionalERA5HistSeasonalDC(TaskRule):
                     label = 'diurnal cycle ' + label
                 ax.set_title(f'{figchar}) {label}', loc='left')
 
+        fig.align_ylabels(axes[:, 0])
         plt.savefig(self.outputs[f'fig_season_dc'])
 
 
 class FigPlotMcsLifetimes(TaskRule):
-    """Used for supp_fig03.pdf
+    """Used for supp_fig05.pdf
 
     Plot the number of MCSs surviving to a given duration, for each lat band/land-sea, and all."""
     @staticmethod
@@ -1912,7 +1960,7 @@ FMT_PATH_MCS_ENV_COND_REVS_LIFECYCLE_MCS_LOCAL_ENV = (
 )
 
 class PlotMcsLocalEnvPrecursorMFC_RH_conv(TaskRule):
-    """Used for supp_fig03
+    """Used for supp_fig03.pdf
 
     """
     @staticmethod
@@ -2010,6 +2058,9 @@ class PlotMcsLocalEnvPrecursorMFC_RH_conv(TaskRule):
                     if var == 'vertically_integrated_moisture_flux_div':
                         data_array = -data_array * 1e4
                         ylabel = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                    elif var.startswith('RH'):
+                        data_array = data_array * 100
+                        ylabel = get_labels(var)
                     elif var in DIV_ERA5VARS:
                         if var.startswith('div'):
                             data_array = -data_array * 1e5
@@ -2149,6 +2200,9 @@ class PlotCorrelationMcsLocalEnvPrecursorMFC_RH_conv(TaskRule):
                 if var == 'vertically_integrated_moisture_flux_div':
                     data_array = -data_array * 1e4
                     label = 'MFC (10$^{-4}$ kg m$^{-2}$ s$^{-1}$)'
+                elif var.startswith('RH'):
+                    data_array = data_array * 100
+                    label = get_labels(var)
                 elif var in DIV_ERA5VARS:
                     if var.startswith('div'):
                         data_array = -data_array * 1e5

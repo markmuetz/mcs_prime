@@ -1237,6 +1237,18 @@ def plot_convection_hourly_hists(ds, var, axes=None):
         else:
             x = ds[f'{var}_hist_mids'].values
 
+        if var == 'tcwv':
+            print(var, lsreg)
+            print(x[:60])
+            lr = linregress(x[:60], d[:60])
+            print(lr)
+        elif var == 'RHmid':
+            print(var, lsreg)
+            print(x)
+            print(d)
+            lr = linregress(x, d)
+            print(lr)
+
         p = ax.plot(x, d, label=lsreg)
         ax2.plot(x, dt / dt.sum(), label=lsreg, color=p[0].get_color(), linestyle='-')
 
@@ -1274,8 +1286,10 @@ class PlotCombineConvectionConditionalERA5Hist(TaskRule):
 
     var_matrix = {
         'years': [cu.YEARS, [2020]],
-        'core_method': ['tb', 'precip'],
-        'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
+        # 'core_method': ['tb', 'precip'],
+        'core_method': ['tb'],
+        # 'e5vars': ['all', 'tcwv-RHmid-vertically_integrated_moisture_flux_div'],
+        'e5vars': ['tcwv-RHmid-vertically_integrated_moisture_flux_div'],
     }
 
     # Running out of time on 4h queue.
@@ -1297,8 +1311,8 @@ class PlotCombineConvectionConditionalERA5Hist(TaskRule):
         fig.set_size_inches(cm_to_inch(SUBFIG_SQ_SIZE * 3, SUBFIG_SQ_SIZE * nrows / 2 * fudge_factor))
 
         with xr.open_mfdataset(self.inputs.values()) as ds:
-            ds.load()
-
+            # No need to load this.
+            # ds.load()
             for i, var in enumerate(e5vars):
                 row_idx = (i // 3) * 2
                 col_idx = i % 3
